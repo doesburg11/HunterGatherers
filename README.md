@@ -2,8 +2,8 @@
 
 Patch-based hunter-gatherer reinforcement learning environments.
 
-The first environment is `HunterGathererPatchEnv`, a hard-border local camp patch
-with deterministic macro-position relocation.
+The first environment is `HunterGathererPatchEnv`, a hard-border local camp
+patch with directional camp relocation bookkeeping.
 
 ## Current Environment
 
@@ -12,29 +12,27 @@ with deterministic macro-position relocation.
 - 31 x 31 default local camp grid
 - configurable bands with 15 members each by default
 - one member maximum per grid cell
-- terrain, plant food, animal density, water, danger, depletion, and trail memory layers
+- grass, water, edible plant food, camp, member, energy, and season layers
 - seasonal resource dynamics
 - hard-border local movement
-- directional camp relocation through macro coordinates
+- directional camp relocation through macro coordinates without regenerating
+  the local patch
 - deterministic patch generation from `(global_seed, macro_x, macro_y)`
 - Gymnasium-style `reset` and `step`
 
 ## Environment Model
 
-The environment is a test bed for hunter-gatherer band behavior. Each band
-starts with 15 humans by default; experiments can use a single band or multiple
-bands through `PatchEnvConfig`.
+The environment is a small test bed for hunter-gatherer band behavior. Each
+band starts with 15 humans by default; experiments can use a single band or
+multiple bands through `PatchEnvConfig`.
 
-- Humans use plants and animals as food resources, and water is represented as a
-  terrain/resource layer.
-- Grassland and water availability shape animal density and food availability.
-- The controlled agent can move through the local patch, and animal density
-  shifts over time as animals diffuse, regrow, and avoid depleted or heavily
-  traveled cells.
-- Band camps can relocate when local food, water, danger, depletion, or seasonal
-  pressure makes the current camp too costly to sustain.
-- Seasonal effects change the environment by reducing or increasing maximum
-  plant food, animal density, water pressure, movement cost, and risk.
+- Terrain is intentionally simple: cells are either grass or water.
+- Plants are the only edible resource. Gathering lowers plant food in the
+  current cell, and plant food regrows over time.
+- Band camps can relocate when local food, water, or seasonal pressure makes
+  the current camp too costly to sustain. Relocation does not regenerate the
+  river, lake, terrain, or local resource layers.
+- Seasonal effects change plant food and movement cost.
 - Each environment step represents one month in the yearly cycle.
 
 Environment defaults and resource tables live in
@@ -51,7 +49,7 @@ settings with `PatchEnvConfig(...)` or `PatchEnvConfig.from_toml(...)`.
 3 move west
 4 move east
 5 gather
-6 hunt
+6 hunt placeholder
 7 rest
 8 move camp north
 9 move camp south
@@ -72,11 +70,11 @@ Channels:
 ```text
 0 terrain
 1 plant food
-2 animal density
+2 reserved zero plane
 3 water
-4 danger
+4 reserved zero plane
 5 camp location
-6 depletion
+6 reserved zero plane
 7 agent position
 8 energy scalar plane
 9 season scalar plane
@@ -89,14 +87,50 @@ python -m unittest discover -s tests
 python -m examples.random_rollout
 ```
 
+## Band Member Multi-Agent API
+
+`BandMemberPatchEnv` exposes an RLlib-shaped dict API without requiring Ray.
+It controls the living members of one band and keeps the original patch,
+resource, collision, and lifecycle state shared.
+
+```python
+from hunter_gatherers import BandMemberPatchEnv, PatchEnvConfig
+from hunter_gatherers.envs.patch_env import Action
+
+env = BandMemberPatchEnv(PatchEnvConfig(members_per_band=3))
+observations, infos = env.reset(seed=123)
+
+actions = {"band_0_member_0": Action.GATHER}
+observations, rewards, terminateds, truncateds, infos = env.step(actions)
+```
+
+Missing member actions default to `STAY`. For now, only
+`band_0_member_0` can move camp; other camp-move actions are treated as
+`STAY`.
+
+## RLlib Adapter
+
+`RllibBandMemberPatchEnv` subclasses RLlib's `MultiAgentEnv` and delegates to
+`BandMemberPatchEnv`. Ray is optional:
+
+```bash
+pip install "hunter-gatherers[rllib]"
+python -m examples.rllib_band_ppo --iterations 1
+```
+
+All band members map to one shared PPO policy in the example. Use the Ray-free
+`BandMemberPatchEnv` directly for local simulation tests that should not depend
+on Ray.
+
 ## Pygame Viewer
 
 ```bash
 python -m examples.pygame_viewer
+python -m examples.pygame_random_band_viewer
 ```
 
-The right sidebar shows current episode stats plus a legend for terrain,
-symbols, and overlays. Viewer values live in
+The right sidebar shows current episode stats plus a legend for cells and
+symbols. Viewer values live in
 `examples/pygame_viewer_config.toml`.
 
 Controls:
@@ -105,14 +139,12 @@ Controls:
 arrow keys        move
 space             stay
 g                 gather
-h                 hunt
 r                 rest
 shift + arrow     move camp
-1                 plant overlay
-2                 animal overlay
-3                 danger overlay
-4                 depletion overlay
 a                 toggle random autoplay
 n                 reset with a new seed
 escape            quit
 ```
+
+Use `python -m examples.pygame_random_band_viewer` to watch all living band 0
+members act through independent random local actions.

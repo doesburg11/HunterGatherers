@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
 
 import numpy as np
 
-from hunter_gatherers import HunterGathererPatchEnv, PatchEnvConfig
+from hunter_gatherers import (
+    BandMemberPatchEnv,
+    HunterGathererPatchEnv,
+    PatchEnvConfig,
+)
 from hunter_gatherers.envs.patch_env import Action, Terrain
 
 
@@ -21,35 +26,26 @@ except ModuleNotFoundError as exc:
 
 TERRAIN_COLORS = {
     Terrain.GRASSLAND: (119, 158, 82),
-    Terrain.WOODLAND: (80, 132, 76),
-    Terrain.DENSE_FOREST: (37, 92, 67),
     Terrain.WATER: (58, 126, 170),
-    Terrain.HILL: (133, 126, 106),
-    Terrain.MARSH: (91, 123, 101),
 }
 
 TERRAIN_LABELS = {
     Terrain.GRASSLAND: "Grassland",
-    Terrain.WOODLAND: "Woodland",
-    Terrain.DENSE_FOREST: "Dense forest",
     Terrain.WATER: "Water",
-    Terrain.HILL: "Hill",
-    Terrain.MARSH: "Marsh",
 }
 
-OVERLAY_COLORS = {
-    "plants": (92, 217, 82),
-    "animals": (229, 178, 73),
-    "danger": (220, 68, 59),
-    "depletion": (76, 63, 50),
-}
+PLANT_COLOR = (55, 174, 65)
+PLANT_CELL_THRESHOLD = 0.18
 
-OVERLAY_KEYS = {
-    "plants": "1",
-    "animals": "2",
-    "danger": "3",
-    "depletion": "4",
-}
+RANDOM_POLICY_ACTIONS = (
+    Action.STAY,
+    Action.MOVE_NORTH,
+    Action.MOVE_SOUTH,
+    Action.MOVE_WEST,
+    Action.MOVE_EAST,
+    Action.GATHER,
+    Action.REST,
+)
 
 BAND_COLORS = {
     0: (246, 198, 75),
@@ -92,11 +88,26 @@ def load_viewer_config(path: Path = CONFIG_PATH) -> ViewerConfig:
 
 
 class PygamePatchViewer:
-    def __init__(self, env: HunterGathererPatchEnv, config: ViewerConfig):
+    def __init__(
+        self,
+        env: HunterGathererPatchEnv,
+        config: ViewerConfig,
+        *,
+        autoplay: bool = False,
+        random_policy_all_members: bool = False,
+    ):
         self.env = env
         self.config = config
-        self.overlay = "plants"
-        self.autoplay = False
+        self.autoplay = autoplay
+        self.random_policy_all_members = random_policy_all_members
+        self.random_policy_rng = np.random.default_rng(config.seed)
+        self.multi_agent_env = (
+            env if isinstance(env, BandMemberPatchEnv) else None
+        )
+        if self.random_policy_all_members and self.multi_agent_env is None:
+            raise ValueError(
+                "random_policy_all_members requires BandMemberPatchEnv."
+            )
         self.last_auto_step_ms = 0
         self.last_reward = 0.0
         self.terminated = False
@@ -154,7 +165,7 @@ class PygamePatchViewer:
                 now = pygame.time.get_ticks()
                 elapsed = now - self.last_auto_step_ms
                 if elapsed >= self.config.auto_step_delay_ms:
-                    self._step(self.env.action_space.sample())
+                    self._step_random_policy()
                     self.last_auto_step_ms = now
 
             self._draw()
@@ -180,15 +191,6 @@ class PygamePatchViewer:
             )
             self._reset(seed)
             return
-        if event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
-            self.overlay = {
-                pygame.K_1: "plants",
-                pygame.K_2: "animals",
-                pygame.K_3: "danger",
-                pygame.K_4: "depletion",
-            }[event.key]
-            return
-
         if self.terminated or self.truncated:
             return
 
@@ -207,8 +209,6 @@ class PygamePatchViewer:
             self._step(Action.STAY)
         elif event.key == pygame.K_g:
             self._step(Action.GATHER)
-        elif event.key == pygame.K_h:
-            self._step(Action.HUNT)
         elif event.key == pygame.K_r:
             self._step(Action.REST)
 
@@ -219,6 +219,10 @@ class PygamePatchViewer:
         _, self.info = self.env.reset(seed=seed)
 
     def _step(self, action: Action | int) -> None:
+        if self.random_policy_all_members:
+            self._step_multi_agent({self._leader_agent_id(): int(action)})
+            return
+
         (
             _,
             reward,
@@ -227,6 +231,48 @@ class PygamePatchViewer:
             self.info,
         ) = self.env.step(int(action))
         self.last_reward = reward
+
+    def _step_random_policy(self) -> None:
+        if not self.random_policy_all_members:
+            self._step(self._random_policy_action())
+            return
+
+        multi_env = self._multi_agent_env()
+        action_dict = {
+            agent_id: int(self._random_policy_action())
+            for agent_id in multi_env.agents
+        }
+        self._step_multi_agent(action_dict)
+
+    def _step_multi_agent(self, action_dict: dict[str, int]) -> None:
+        multi_env = self._multi_agent_env()
+        (
+            _,
+            rewards,
+            terminations,
+            truncations,
+            infos,
+        ) = multi_env.step(action_dict)
+        self.last_reward = float(sum(rewards.values()))
+        self.terminated = bool(terminations["__all__"])
+        self.truncated = bool(truncations["__all__"])
+        self.info = {
+            "agent_infos": infos,
+            "step_count": multi_env.step_count,
+            "population": multi_env.population,
+        }
+
+    @staticmethod
+    def _leader_agent_id() -> str:
+        return "band_0_member_0"
+
+    def _random_policy_action(self) -> Action:
+        return self.random_policy_rng.choice(RANDOM_POLICY_ACTIONS)
+
+    def _multi_agent_env(self) -> BandMemberPatchEnv:
+        if self.multi_agent_env is None:
+            raise RuntimeError("Multi-agent viewer mode is not enabled.")
+        return self.multi_agent_env
 
     def _draw(self) -> None:
         self.screen.fill((24, 27, 24))
@@ -239,21 +285,9 @@ class PygamePatchViewer:
             for x in range(self.env.grid_size):
                 rect = pygame.Rect(x * cell, y * cell, cell, cell)
                 terrain = Terrain(int(self.env.terrain[y, x]))
-                color = TERRAIN_COLORS[terrain]
+                plant_value = float(self.env.plant_food[y, x])
+                color = self._cell_color(terrain, plant_value)
                 pygame.draw.rect(self.screen, color, rect)
-                display_color = color
-
-                value = self._overlay_value(y, x)
-                if value > 0.01:
-                    overlay = pygame.Surface((cell, cell), pygame.SRCALPHA)
-                    alpha = int(np.clip(value, 0.0, 1.0) * 145)
-                    overlay.fill((*OVERLAY_COLORS[self.overlay], alpha))
-                    self.screen.blit(overlay, rect)
-                    display_color = self._blend_color(
-                        color,
-                        OVERLAY_COLORS[self.overlay],
-                        alpha / 255.0,
-                    )
 
                 pygame.draw.rect(
                     self.screen,
@@ -261,7 +295,6 @@ class PygamePatchViewer:
                     rect,
                     self._scale(1),
                 )
-                self._draw_cell_number(rect, terrain, display_color)
 
         self._draw_camps()
         self._draw_members()
@@ -289,6 +322,8 @@ class PygamePatchViewer:
         for band_id, band_positions in enumerate(self.env.member_positions):
             color = BAND_COLORS.get(int(band_id), (220, 220, 220))
             for member_id, (y, x) in enumerate(band_positions):
+                if not self.env.member_alive[band_id, member_id]:
+                    continue
                 center = (
                     int(x) * cell + cell // 2,
                     int(y) * cell + cell // 2,
@@ -328,7 +363,7 @@ class PygamePatchViewer:
     def _draw_legend(self, x: int, y: int) -> None:
         y = self._draw_section_title("Legend", x, y)
         y = self._draw_symbol_entry(
-            "Controlled member",
+            "Leader",
             x,
             y,
             "circle",
@@ -341,47 +376,18 @@ class PygamePatchViewer:
             "circle",
             BAND_COLORS[0],
         )
-        y = self._draw_symbol_entry(
-            "Band 1 member",
-            x,
-            y,
-            "circle",
-            BAND_COLORS[1],
-        )
         y = self._draw_symbol_entry("Camp", x, y, "triangle", CAMP_COLOR)
         y += self._scale(5)
 
-        y = self._draw_section_title("Terrain", x, y)
+        y = self._draw_section_title("Cells", x, y)
+        y = self._draw_swatch_entry("Plants", PLANT_COLOR, x, y)
         for terrain, label in TERRAIN_LABELS.items():
             y = self._draw_swatch_entry(
                 label,
                 TERRAIN_COLORS[terrain],
                 x,
                 y,
-                str(int(terrain)),
             )
-        y += self._scale(5)
-
-        y = self._draw_section_title("Overlays", x, y)
-        for key, color in OVERLAY_COLORS.items():
-            prefix = "*" if key == self.overlay else " "
-            y = self._draw_swatch_entry(
-                f"{prefix} {key}",
-                color,
-                x,
-                y,
-                OVERLAY_KEYS[key],
-            )
-
-        y += self._scale(5)
-        self._draw_text(
-            "Shift+arrows: move camp",
-            x,
-            y,
-            self.small_font,
-            (174, 178, 166),
-            self._scale(22),
-        )
 
     def _draw_section_title(self, text: str, x: int, y: int) -> int:
         return self._draw_text(
@@ -399,7 +405,6 @@ class PygamePatchViewer:
         color: tuple[int, int, int],
         x: int,
         y: int,
-        marker: str,
     ) -> int:
         rect = pygame.Rect(
             x,
@@ -414,13 +419,6 @@ class PygamePatchViewer:
             rect,
             self._scale(1),
         )
-        marker_surface = self.badge_font.render(
-            marker,
-            True,
-            self._contrast_color(color),
-        )
-        marker_rect = marker_surface.get_rect(center=rect.center)
-        self.screen.blit(marker_surface, marker_rect)
         return self._draw_text(
             label,
             x + self._scale(28),
@@ -470,23 +468,18 @@ class PygamePatchViewer:
             self._scale(22),
         )
 
-    def _draw_cell_number(
+    def _cell_color(
         self,
-        rect: pygame.Rect,
         terrain: Terrain,
-        display_color: tuple[int, int, int],
-    ) -> None:
-        text_color = self._contrast_color(display_color)
-        shadow_color = self._contrast_color(text_color)
-        marker = self.grid_font.render(str(int(terrain)), True, shadow_color)
-        offset = self._scale(1)
-        shadow_center = (rect.centerx + offset, rect.centery + offset)
-        marker_rect = marker.get_rect(center=shadow_center)
-        self.screen.blit(marker, marker_rect)
+        plant_value: float,
+    ) -> tuple[int, int, int]:
+        if self._is_plant_cell(terrain, plant_value):
+            return PLANT_COLOR
+        return TERRAIN_COLORS[terrain]
 
-        marker = self.grid_font.render(str(int(terrain)), True, text_color)
-        marker_rect = marker.get_rect(center=rect.center)
-        self.screen.blit(marker, marker_rect)
+    @staticmethod
+    def _is_plant_cell(terrain: Terrain, plant_value: float) -> bool:
+        return terrain != Terrain.WATER and plant_value >= PLANT_CELL_THRESHOLD
 
     @staticmethod
     def _contrast_color(
@@ -495,17 +488,6 @@ class PygamePatchViewer:
         red, green, blue = color
         luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
         return (24, 24, 24) if luminance > 145 else (245, 245, 238)
-
-    @staticmethod
-    def _blend_color(
-        base: tuple[int, int, int],
-        overlay: tuple[int, int, int],
-        alpha: float,
-    ) -> tuple[int, int, int]:
-        return tuple(
-            int((1.0 - alpha) * base_channel + alpha * overlay_channel)
-            for base_channel, overlay_channel in zip(base, overlay)
-        )  # type: ignore[return-value]
 
     def _draw_text(
         self,
@@ -522,22 +504,32 @@ class PygamePatchViewer:
             line_height = self._scale(22)
         return y + line_height
 
-    def _overlay_value(self, y: int, x: int) -> float:
-        if self.overlay == "plants":
-            return float(self.env.plant_food[y, x])
-        if self.overlay == "animals":
-            return float(self.env.animal_density[y, x])
-        if self.overlay == "danger":
-            return float(self.env.danger[y, x])
-        if self.overlay == "depletion":
-            return float(self.env.depletion[y, x])
-        return 0.0
-
-
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--multi-agent-random",
+        action="store_true",
+        help="Control all band 0 members with random actions during autoplay.",
+    )
+    parser.add_argument(
+        "--autoplay",
+        action="store_true",
+        help="Start stepping immediately instead of waiting for the 'a' key.",
+    )
+    args = parser.parse_args()
+
     config = load_viewer_config()
-    env = HunterGathererPatchEnv(PatchEnvConfig())
-    viewer = PygamePatchViewer(env, config)
+    env = (
+        BandMemberPatchEnv(PatchEnvConfig())
+        if args.multi_agent_random
+        else HunterGathererPatchEnv(PatchEnvConfig())
+    )
+    viewer = PygamePatchViewer(
+        env,
+        config,
+        autoplay=args.autoplay,
+        random_policy_all_members=args.multi_agent_random,
+    )
     viewer.run()
 
 
