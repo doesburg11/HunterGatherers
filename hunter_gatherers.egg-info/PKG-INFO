@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: hunter-gatherers
+Version: 0.1.0
+Summary: Patch-based hunter-gatherer reinforcement learning environments.
+Requires-Python: >=3.11
+Requires-Dist: gymnasium>=1.0
+Requires-Dist: numpy>=2.0
+Provides-Extra: viewer
+Requires-Dist: pygame>=2.5; extra == "viewer"

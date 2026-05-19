@@ -1,0 +1,6 @@
+[flake8]
+exclude =
+    .conda,
+    .git,
+    __pycache__,
+    *.egg-info

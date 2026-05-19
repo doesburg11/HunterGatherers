@@ -1,0 +1,7 @@
+grid_size = 31
+cell_size = 18
+sidebar_width = 280
+scale = 1.7
+fps = 12
+seed = 123
+auto_step_delay_ms = 180
