@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from enum import IntEnum
+from pathlib import Path
+import tomllib
 from typing import Any
 
 import gymnasium as gym
@@ -40,53 +42,79 @@ class Action(IntEnum):
     MOVE_CAMP_EAST = 11
 
 
+DEFAULT_ENV_CONFIG_PATH = Path(__file__).with_name("patch_env_config.toml")
+_RAW_ENV_CONFIG = tomllib.loads(
+    DEFAULT_ENV_CONFIG_PATH.read_text(encoding="utf-8")
+)
+_ENVIRONMENT_DEFAULTS = _RAW_ENV_CONFIG["environment"]
+
+
+def _default_config_value(name: str, fallback: Any) -> Any:
+    return _ENVIRONMENT_DEFAULTS.get(name, fallback)
+
+
+def _config_array(section: str, name: str) -> np.ndarray:
+    return np.array(_RAW_ENV_CONFIG[section][name], dtype=np.float32)
+
+
 @dataclass(frozen=True)
 class PatchEnvConfig:
-    grid_size: int = 31
-    obs_range: int = 11
-    max_steps: int = 2000
-    num_bands: int = 2
-    members_per_band: int = 15
-    initial_energy: float = 100.0
-    max_energy: float = 150.0
-    movement_cost: float = 1.0
-    rest_recovery: float = 0.5
-    plant_food_gain: float = 8.0
-    animal_food_gain: float = 20.0
-    gather_amount: float = 0.25
-    hunt_amount: float = 0.2
-    plant_regrowth_base: float = 0.01
-    animal_regrowth_base: float = 0.005
-    season_length: int = 250
-    camp_move_cost: float = 20.0
-    camp_move_distance: int = 10
-    danger_damage_scale: float = 2.0
-    trail_memory_decay: float = 0.995
-    depletion_decay: float = 0.0005
-    global_seed: int = 12345
+    grid_size: int = _default_config_value("grid_size", 31)
+    obs_range: int = _default_config_value("obs_range", 11)
+    max_steps: int = _default_config_value("max_steps", 2000)
+    num_bands: int = _default_config_value("num_bands", 2)
+    members_per_band: int = _default_config_value("members_per_band", 15)
+    initial_energy: float = _default_config_value("initial_energy", 100.0)
+    max_energy: float = _default_config_value("max_energy", 150.0)
+    movement_cost: float = _default_config_value("movement_cost", 1.0)
+    rest_recovery: float = _default_config_value("rest_recovery", 0.5)
+    plant_food_gain: float = _default_config_value("plant_food_gain", 8.0)
+    animal_food_gain: float = _default_config_value("animal_food_gain", 20.0)
+    gather_amount: float = _default_config_value("gather_amount", 0.25)
+    hunt_amount: float = _default_config_value("hunt_amount", 0.2)
+    plant_regrowth_base: float = _default_config_value(
+        "plant_regrowth_base",
+        0.01,
+    )
+    animal_regrowth_base: float = _default_config_value(
+        "animal_regrowth_base",
+        0.005,
+    )
+    season_length: int = _default_config_value("season_length", 250)
+    camp_move_cost: float = _default_config_value("camp_move_cost", 20.0)
+    camp_move_distance: int = _default_config_value("camp_move_distance", 10)
+    danger_damage_scale: float = _default_config_value(
+        "danger_damage_scale",
+        2.0,
+    )
+    trail_memory_decay: float = _default_config_value(
+        "trail_memory_decay",
+        0.995,
+    )
+    depletion_decay: float = _default_config_value("depletion_decay", 0.0005)
+    global_seed: int = _default_config_value("global_seed", 12345)
+
+    @classmethod
+    def from_toml(cls, path: str | Path) -> "PatchEnvConfig":
+        raw_config = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+        values = raw_config.get("environment", raw_config)
+        field_names = {field.name for field in fields(cls)}
+        unknown_fields = set(values) - field_names
+        if unknown_fields:
+            unknown = ", ".join(sorted(unknown_fields))
+            raise ValueError(f"Unknown environment config fields: {unknown}")
+        return cls(**values)
 
 
-TERRAIN_PLANT_BASE = np.array(
-    [0.55, 0.75, 0.65, 0.05, 0.18, 0.45],
-    dtype=np.float32,
-)
-TERRAIN_ANIMAL_BASE = np.array(
-    [0.72, 0.58, 0.42, 0.18, 0.22, 0.48],
-    dtype=np.float32,
-)
-TERRAIN_MOVEMENT_COST = np.array(
-    [1.0, 1.35, 1.8, 3.0, 2.0, 2.2],
-    dtype=np.float32,
-)
-TERRAIN_DANGER_BASE = np.array(
-    [0.35, 0.2, 0.35, 0.1, 0.55, 0.6],
-    dtype=np.float32,
-)
+TERRAIN_PLANT_BASE = _config_array("terrain", "plant_base")
+TERRAIN_ANIMAL_BASE = _config_array("terrain", "animal_base")
+TERRAIN_MOVEMENT_COST = _config_array("terrain", "movement_cost")
+TERRAIN_DANGER_BASE = _config_array("terrain", "danger_base")
 
-SEASON_PLANT_MOD = np.array([1.35, 1.15, 0.75, 0.15], dtype=np.float32)
-SEASON_ANIMAL_MOD = np.array([0.85, 1.15, 1.05, 0.55], dtype=np.float32)
-SEASON_COST_MOD = np.array([1.05, 0.9, 1.05, 1.35], dtype=np.float32)
-SEASON_RISK_MOD = np.array([0.85, 0.8, 1.05, 1.3], dtype=np.float32)
+SEASON_PLANT_MOD = _config_array("season", "plant_mod")
+SEASON_ANIMAL_MOD = _config_array("season", "animal_mod")
+SEASON_COST_MOD = _config_array("season", "cost_mod")
+SEASON_RISK_MOD = _config_array("season", "risk_mod")
 
 
 class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):

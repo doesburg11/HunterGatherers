@@ -19,3 +19,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["hunter_gatherers*"]
+
+[tool.setuptools.package-data]
+"hunter_gatherers.envs" = ["*.toml"]

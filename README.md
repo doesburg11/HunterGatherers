@@ -10,7 +10,7 @@ with deterministic macro-position relocation.
 `HunterGathererPatchEnv v0.1` includes:
 
 - 31 x 31 default local camp grid
-- two bands with 15 members each
+- configurable bands with 15 members each by default
 - one member maximum per grid cell
 - terrain, plant food, animal density, water, danger, depletion, and trail memory layers
 - seasonal resource dynamics
@@ -18,6 +18,29 @@ with deterministic macro-position relocation.
 - directional camp relocation through macro coordinates
 - deterministic patch generation from `(global_seed, macro_x, macro_y)`
 - Gymnasium-style `reset` and `step`
+
+## Environment Model
+
+The environment is a test bed for hunter-gatherer band behavior. Each band
+starts with 15 humans by default; experiments can use a single band or multiple
+bands through `PatchEnvConfig`.
+
+- Humans use plants and animals as food resources, and water is represented as a
+  terrain/resource layer.
+- Grassland and water availability shape animal density and food availability.
+- The controlled agent can move through the local patch, and animal density
+  shifts over time as animals diffuse, regrow, and avoid depleted or heavily
+  traveled cells.
+- Band camps can relocate when local food, water, danger, depletion, or seasonal
+  pressure makes the current camp too costly to sustain.
+- Seasonal effects change the environment by reducing or increasing maximum
+  plant food, animal density, water pressure, movement cost, and risk.
+- Each environment step represents one month in the yearly cycle.
+
+Environment defaults and resource tables live in
+`hunter_gatherers/envs/patch_env_config.toml`. Runtime code loads those values
+into `PatchEnvConfig`, and tests or experiments can still override individual
+settings with `PatchEnvConfig(...)` or `PatchEnvConfig.from_toml(...)`.
 
 ## Actions
 

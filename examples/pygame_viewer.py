@@ -71,7 +71,7 @@ class ViewerConfig:
     auto_step_delay_ms: int = 180
 
 
-def load_viewer_config(path: Path = CONFIG_PATH) -> tuple[int, ViewerConfig]:
+def load_viewer_config(path: Path = CONFIG_PATH) -> ViewerConfig:
     raw_config = tomllib.loads(path.read_text(encoding="utf-8"))
     viewer_config = ViewerConfig(
         cell_size=int(raw_config.get("cell_size", ViewerConfig.cell_size)),
@@ -88,8 +88,7 @@ def load_viewer_config(path: Path = CONFIG_PATH) -> tuple[int, ViewerConfig]:
             )
         ),
     )
-    grid_size = int(raw_config.get("grid_size", 31))
-    return grid_size, viewer_config
+    return viewer_config
 
 
 class PygamePatchViewer:
@@ -536,8 +535,8 @@ class PygamePatchViewer:
 
 
 def main() -> None:
-    grid_size, config = load_viewer_config()
-    env = HunterGathererPatchEnv(PatchEnvConfig(grid_size=grid_size))
+    config = load_viewer_config()
+    env = HunterGathererPatchEnv(PatchEnvConfig())
     viewer = PygamePatchViewer(env, config)
     viewer.run()
 

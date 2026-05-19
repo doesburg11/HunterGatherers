@@ -1,0 +1,37 @@
+[environment]
+grid_size = 31
+obs_range = 11
+max_steps = 2000
+num_bands = 1
+members_per_band = 15
+initial_energy = 100.0
+max_energy = 150.0
+movement_cost = 1.0
+rest_recovery = 0.5
+plant_food_gain = 8.0
+animal_food_gain = 20.0
+gather_amount = 0.25
+hunt_amount = 0.2
+plant_regrowth_base = 0.01
+animal_regrowth_base = 0.005
+season_length = 250
+camp_move_cost = 20.0
+camp_move_distance = 10
+danger_damage_scale = 2.0
+trail_memory_decay = 0.995
+depletion_decay = 0.0005
+global_seed = 12345
+
+[terrain]
+# Terrain order: grassland, woodland, dense forest, water, hill, marsh.
+plant_base = [0.55, 0.75, 0.65, 0.05, 0.18, 0.45]
+animal_base = [0.72, 0.58, 0.42, 0.18, 0.22, 0.48]
+movement_cost = [1.0, 1.35, 1.8, 3.0, 2.0, 2.2]
+danger_base = [0.35, 0.2, 0.35, 0.1, 0.55, 0.6]
+
+[season]
+# Season order: spring, summer, autumn, winter.
+plant_mod = [1.35, 1.15, 0.75, 0.15]
+animal_mod = [0.85, 1.15, 1.05, 0.55]
+cost_mod = [1.05, 0.9, 1.05, 1.35]
+risk_mod = [0.85, 0.8, 1.05, 1.3]
