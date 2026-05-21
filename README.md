@@ -3,7 +3,7 @@
 Patch-based hunter-gatherer reinforcement learning environments.
 
 The first environment is `HunterGathererPatchEnv`, a hard-border local camp
-patch with directional camp relocation bookkeeping.
+patch with automatic camp relocation when nearby resources are depleted.
 
 ## Current Environment
 
@@ -12,11 +12,12 @@ patch with directional camp relocation bookkeeping.
 - 31 x 31 default local camp grid
 - configurable bands with 15 members each by default
 - one member maximum per grid cell
-- grass, water, edible plant food, camp, member, energy, and season layers
+- grass, water, edible plant energy, camp, member, energy, hydration, and
+  season layers
 - seasonal resource dynamics
 - hard-border local movement
-- directional camp relocation through macro coordinates without regenerating
-  the local patch
+- automatic camp relocation when the plant area around camp is depleted,
+  without regenerating the local patch
 - deterministic patch generation from `(global_seed, macro_x, macro_y)`
 - Gymnasium-style `reset` and `step`
 
@@ -27,12 +28,19 @@ band starts with 15 humans by default; experiments can use a single band or
 multiple bands through `PatchEnvConfig`.
 
 - Terrain is intentionally simple: cells are either grass or water.
-- Plants are the only edible resource. Gathering lowers plant food in the
-  current cell, and plant food regrows over time.
-- Band camps can relocate when local food, water, or seasonal pressure makes
-  the current camp too costly to sustain. Relocation does not regenerate the
-  river, lake, terrain, or local resource layers.
-- Seasonal effects change plant food and movement cost.
+- Plants are the only edible resource. Plant cells store direct energy, and
+  members automatically eat from a plant cell when they enter it.
+- By default, a full plant cell holds up to 8 energy and entering a plant cell
+  transfers up to 2 energy.
+- Members also need water. Hydration drops every step, and members
+  automatically drink when they enter a water cell.
+- Band camps relocate automatically when the plant cells around camp are
+  depleted. The new camp's foraging radius cannot overlap the old camp's
+  foraging radius. Relocation does not regenerate the river, lake, terrain, or
+  local resource layers.
+- Step info includes `camp_potential_energy`, the unreaped plant energy still
+  available within the current camp radius.
+- Seasonal effects change plant energy and movement cost.
 - Each environment step represents one month in the yearly cycle.
 
 Environment defaults and resource tables live in
@@ -48,13 +56,6 @@ settings with `PatchEnvConfig(...)` or `PatchEnvConfig.from_toml(...)`.
 2 move south
 3 move west
 4 move east
-5 gather
-6 hunt placeholder
-7 rest
-8 move camp north
-9 move camp south
-10 move camp west
-11 move camp east
 ```
 
 ## Observation
@@ -62,22 +63,23 @@ settings with `PatchEnvConfig(...)` or `PatchEnvConfig.from_toml(...)`.
 The observation is a CNN-friendly `Box(0, 1)` with shape:
 
 ```text
-10 x obs_range x obs_range
+11 x obs_range x obs_range
 ```
 
 Channels:
 
 ```text
 0 terrain
-1 plant food
+1 plant energy, normalized to 0..1
 2 reserved zero plane
 3 water
 4 reserved zero plane
 5 camp location
-6 reserved zero plane
+6 plant depletion around resource cells
 7 agent position
 8 energy scalar plane
-9 season scalar plane
+9 hydration scalar plane
+10 season scalar plane
 ```
 
 ## Quick Check
@@ -100,13 +102,12 @@ from hunter_gatherers.envs.patch_env import Action
 env = BandMemberPatchEnv(PatchEnvConfig(members_per_band=3))
 observations, infos = env.reset(seed=123)
 
-actions = {"band_0_member_0": Action.GATHER}
+actions = {"band_0_member_0": Action.MOVE_EAST}
 observations, rewards, terminateds, truncateds, infos = env.step(actions)
 ```
 
-Missing member actions default to `STAY`. For now, only
-`band_0_member_0` can move camp; other camp-move actions are treated as
-`STAY`.
+Missing member actions default to `STAY`. Camp relocation is not an agent
+action; it is triggered automatically by depletion around the camp.
 
 ## RLlib Adapter
 
@@ -129,8 +130,8 @@ python -m examples.pygame_viewer
 python -m examples.pygame_random_band_viewer
 ```
 
-The right sidebar shows current episode stats plus a legend for cells and
-symbols. Viewer values live in
+The right sidebar shows camp potential energy, depletion, a legend, and member
+resource bars. Viewer values and the example environment parameters live in
 `examples/pygame_viewer_config.toml`.
 
 Controls:
@@ -138,9 +139,6 @@ Controls:
 ```text
 arrow keys        move
 space             stay
-g                 gather
-r                 rest
-shift + arrow     move camp
 a                 toggle random autoplay
 n                 reset with a new seed
 escape            quit

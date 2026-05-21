@@ -1,16 +1,24 @@
 from __future__ import annotations
 
-from hunter_gatherers import BandMemberPatchEnv, PatchEnvConfig
+from hunter_gatherers import BandMemberPatchEnv
 
 try:
-    from examples.pygame_viewer import PygamePatchViewer, load_viewer_config
+    from examples.pygame_viewer import (
+        PygamePatchViewer,
+        load_env_config,
+        load_viewer_config,
+    )
 except ModuleNotFoundError:
-    from pygame_viewer import PygamePatchViewer, load_viewer_config
+    from pygame_viewer import (
+        PygamePatchViewer,
+        load_env_config,
+        load_viewer_config,
+    )
 
 
 def main() -> None:
     config = load_viewer_config()
-    env = BandMemberPatchEnv(PatchEnvConfig())
+    env = BandMemberPatchEnv(load_env_config())
     viewer = PygamePatchViewer(
         env,
         config,

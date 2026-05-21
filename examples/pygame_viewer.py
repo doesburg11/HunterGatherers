@@ -35,7 +35,7 @@ TERRAIN_LABELS = {
 }
 
 PLANT_COLOR = (55, 174, 65)
-PLANT_CELL_THRESHOLD = 0.18
+PLANT_CELL_MIN_ENERGY = 0.01
 
 RANDOM_POLICY_ACTIONS = (
     Action.STAY,
@@ -43,8 +43,6 @@ RANDOM_POLICY_ACTIONS = (
     Action.MOVE_SOUTH,
     Action.MOVE_WEST,
     Action.MOVE_EAST,
-    Action.GATHER,
-    Action.REST,
 )
 
 BAND_COLORS = {
@@ -69,22 +67,32 @@ class ViewerConfig:
 
 def load_viewer_config(path: Path = CONFIG_PATH) -> ViewerConfig:
     raw_config = tomllib.loads(path.read_text(encoding="utf-8"))
+    viewer_values = raw_config.get("viewer", raw_config)
     viewer_config = ViewerConfig(
-        cell_size=int(raw_config.get("cell_size", ViewerConfig.cell_size)),
-        sidebar_width=int(
-            raw_config.get("sidebar_width", ViewerConfig.sidebar_width)
+        cell_size=int(
+            viewer_values.get("cell_size", ViewerConfig.cell_size)
         ),
-        scale=float(raw_config.get("scale", ViewerConfig.scale)),
-        fps=int(raw_config.get("fps", ViewerConfig.fps)),
-        seed=int(raw_config.get("seed", ViewerConfig.seed)),
+        sidebar_width=int(
+            viewer_values.get("sidebar_width", ViewerConfig.sidebar_width)
+        ),
+        scale=float(viewer_values.get("scale", ViewerConfig.scale)),
+        fps=int(viewer_values.get("fps", ViewerConfig.fps)),
+        seed=int(viewer_values.get("seed", ViewerConfig.seed)),
         auto_step_delay_ms=int(
-            raw_config.get(
+            viewer_values.get(
                 "auto_step_delay_ms",
                 ViewerConfig.auto_step_delay_ms,
             )
         ),
     )
     return viewer_config
+
+
+def load_env_config(path: Path = CONFIG_PATH) -> PatchEnvConfig:
+    raw_config = tomllib.loads(path.read_text(encoding="utf-8"))
+    if "environment" not in raw_config:
+        return PatchEnvConfig()
+    return PatchEnvConfig.from_toml(path)
 
 
 class PygamePatchViewer:
@@ -127,6 +135,7 @@ class PygamePatchViewer:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("arial", self._scale(18))
         self.small_font = pygame.font.SysFont("arial", self._scale(17))
+        self.energy_font = pygame.font.SysFont("arial", self._scale(13))
         self.badge_font = pygame.font.SysFont(
             "arial",
             self._scale(13),
@@ -194,23 +203,16 @@ class PygamePatchViewer:
         if self.terminated or self.truncated:
             return
 
-        shifted = bool(event.mod & pygame.KMOD_SHIFT)
         if event.key == pygame.K_UP:
-            action = Action.MOVE_CAMP_NORTH if shifted else Action.MOVE_NORTH
-            self._step(action)
+            self._step(Action.MOVE_NORTH)
         elif event.key == pygame.K_DOWN:
-            action = Action.MOVE_CAMP_SOUTH if shifted else Action.MOVE_SOUTH
-            self._step(action)
+            self._step(Action.MOVE_SOUTH)
         elif event.key == pygame.K_LEFT:
-            self._step(Action.MOVE_CAMP_WEST if shifted else Action.MOVE_WEST)
+            self._step(Action.MOVE_WEST)
         elif event.key == pygame.K_RIGHT:
-            self._step(Action.MOVE_CAMP_EAST if shifted else Action.MOVE_EAST)
+            self._step(Action.MOVE_EAST)
         elif event.key == pygame.K_SPACE:
             self._step(Action.STAY)
-        elif event.key == pygame.K_g:
-            self._step(Action.GATHER)
-        elif event.key == pygame.K_r:
-            self._step(Action.REST)
 
     def _reset(self, seed: int) -> None:
         self.last_reward = 0.0
@@ -220,7 +222,7 @@ class PygamePatchViewer:
 
     def _step(self, action: Action | int) -> None:
         if self.random_policy_all_members:
-            self._step_multi_agent({self._leader_agent_id(): int(action)})
+            self._step_multi_agent({self._controlled_agent_id(): int(action)})
             return
 
         (
@@ -263,7 +265,7 @@ class PygamePatchViewer:
         }
 
     @staticmethod
-    def _leader_agent_id() -> str:
+    def _controlled_agent_id() -> str:
         return "band_0_member_0"
 
     def _random_policy_action(self) -> Action:
@@ -285,8 +287,8 @@ class PygamePatchViewer:
             for x in range(self.env.grid_size):
                 rect = pygame.Rect(x * cell, y * cell, cell, cell)
                 terrain = Terrain(int(self.env.terrain[y, x]))
-                plant_value = float(self.env.plant_food[y, x])
-                color = self._cell_color(terrain, plant_value)
+                plant_energy = float(self.env.plant_energy[y, x])
+                color = self._cell_color(terrain, plant_energy)
                 pygame.draw.rect(self.screen, color, rect)
 
                 pygame.draw.rect(
@@ -358,9 +360,19 @@ class PygamePatchViewer:
 
         x = left + self._scale(18)
         y = self._scale(18)
-        self._draw_legend(x, y)
+        y = self._draw_camp_metrics(x, y)
+        y += self._scale(16)
+        y = self._draw_legend(x, y)
+        y += self._scale(16)
+        available_height = self.screen.get_height() - y - self._scale(12)
+        chart_height = max(self._scale(180), available_height)
+        self._draw_member_resource_chart(
+            x,
+            y,
+            chart_height,
+        )
 
-    def _draw_legend(self, x: int, y: int) -> None:
+    def _draw_legend(self, x: int, y: int) -> int:
         y = self._draw_section_title("Legend", x, y)
         y = self._draw_symbol_entry(
             "Leader",
@@ -388,6 +400,205 @@ class PygamePatchViewer:
                 x,
                 y,
             )
+        return y
+
+    def _draw_camp_metrics(self, x: int, y: int) -> int:
+        y = self._draw_section_title("Camp", x, y)
+        y = self._draw_metric_row(
+            "Potential energy",
+            f"{self.env.camp_potential_energy():.1f}",
+            x,
+            y,
+        )
+        return self._draw_metric_row(
+            "Depletion",
+            f"{self.env.local_depletion_level:.0%}",
+            x,
+            y,
+        )
+
+    def _draw_metric_row(
+        self,
+        label: str,
+        value: str,
+        x: int,
+        y: int,
+    ) -> int:
+        label_surface = self.small_font.render(label, True, (211, 214, 201))
+        value_surface = self.small_font.render(value, True, (238, 237, 225))
+        self.screen.blit(label_surface, (x, y))
+        value_rect = value_surface.get_rect(
+            topright=(self.screen.get_width() - self._scale(18), y)
+        )
+        self.screen.blit(value_surface, value_rect)
+        return y + self._scale(22)
+
+    def _draw_member_resource_chart(
+        self,
+        x: int,
+        y: int,
+        chart_height: int,
+    ) -> int:
+        y = self._draw_section_title("Resources", x, y)
+        chart_width = self.sidebar_width - self._scale(36)
+        band_id = 0
+        member_count = self.env.config.members_per_band
+        header_height = self._scale(20)
+        row_height = max(
+            self._scale(12),
+            (chart_height - header_height - self._scale(6)) // member_count,
+        )
+        chart_height = (
+            header_height
+            + row_height * member_count
+            + self._scale(6)
+        )
+        chart_rect = pygame.Rect(x, y, chart_width, chart_height)
+        id_width = self._scale(36)
+        gap = self._scale(8)
+        metric_width = max(
+            self._scale(40),
+            (chart_rect.width - id_width - gap) // 2,
+        )
+        energy_x = chart_rect.x + id_width
+        water_x = energy_x + metric_width + gap
+        energy_max = max(1.0, float(self.env.config.max_energy))
+        water_max = max(1.0, float(self.env.config.max_hydration))
+        bar_height = max(self._scale(6), row_height - self._scale(8))
+
+        pygame.draw.rect(self.screen, (26, 29, 27), chart_rect)
+        pygame.draw.rect(
+            self.screen,
+            (66, 72, 66),
+            chart_rect,
+            self._scale(1),
+        )
+        self._draw_chart_header("Energy", energy_x, y, metric_width)
+        self._draw_chart_header("Water", water_x, y, metric_width)
+
+        for member_id in range(member_count):
+            row_y = (
+                chart_rect.y
+                + header_height
+                + self._scale(3)
+                + member_id * row_height
+            )
+            alive = bool(self.env.member_alive[band_id, member_id])
+            member_identity = int(self.env.member_ids[band_id, member_id])
+            id_surface = self.energy_font.render(
+                f"#{member_identity}",
+                True,
+                (211, 214, 201),
+            )
+            id_rect = id_surface.get_rect(
+                midleft=(
+                    chart_rect.x + self._scale(6),
+                    row_y + row_height // 2,
+                )
+            )
+            self.screen.blit(id_surface, id_rect)
+
+            energy_color = (
+                CONTROLLED_MEMBER_COLOR
+                if member_id == 0
+                else BAND_COLORS[0]
+            )
+            water_color = TERRAIN_COLORS[Terrain.WATER]
+            if not alive:
+                energy_color = (85, 88, 82)
+                water_color = (85, 88, 82)
+
+            self._draw_member_resource_bar(
+                energy_x,
+                row_y,
+                metric_width,
+                bar_height,
+                row_height,
+                max(0.0, float(self.env.member_energy[band_id, member_id])),
+                energy_max,
+                energy_color,
+            )
+            self._draw_member_resource_bar(
+                water_x,
+                row_y,
+                metric_width,
+                bar_height,
+                row_height,
+                max(
+                    0.0,
+                    float(self.env.member_hydration[band_id, member_id]),
+                ),
+                water_max,
+                water_color,
+            )
+
+        pygame.draw.rect(
+            self.screen,
+            (31, 34, 32),
+            chart_rect,
+            self._scale(1),
+        )
+        return chart_rect.bottom
+
+    def _draw_chart_header(
+        self,
+        label: str,
+        x: int,
+        y: int,
+        width: int,
+    ) -> None:
+        surface = self.energy_font.render(label, True, (211, 214, 201))
+        rect = surface.get_rect(
+            midtop=(x + width // 2, y + self._scale(3))
+        )
+        self.screen.blit(surface, rect)
+
+    def _draw_member_resource_bar(
+        self,
+        x: int,
+        row_y: int,
+        width: int,
+        bar_height: int,
+        row_height: int,
+        value: float,
+        max_value: float,
+        fill_color: tuple[int, int, int],
+    ) -> None:
+        value_ratio = min(1.0, value / max_value)
+        fill_width = int(round(width * value_ratio))
+        bar_bg_rect = pygame.Rect(
+            x,
+            row_y + (row_height - bar_height) // 2,
+            width,
+            bar_height,
+        )
+        bar_rect = pygame.Rect(
+            x,
+            bar_bg_rect.y,
+            fill_width,
+            bar_height,
+        )
+        pygame.draw.rect(self.screen, (45, 50, 45), bar_bg_rect)
+        pygame.draw.rect(self.screen, fill_color, bar_rect)
+        pygame.draw.rect(
+            self.screen,
+            (31, 34, 32),
+            bar_bg_rect,
+            self._scale(1),
+        )
+
+        value_surface = self.energy_font.render(
+            f"{value:.0f}",
+            True,
+            (238, 237, 225),
+        )
+        value_rect = value_surface.get_rect(
+            midright=(
+                bar_bg_rect.right - self._scale(4),
+                bar_bg_rect.centery,
+            )
+        )
+        self.screen.blit(value_surface, value_rect)
 
     def _draw_section_title(self, text: str, x: int, y: int) -> int:
         return self._draw_text(
@@ -471,15 +682,18 @@ class PygamePatchViewer:
     def _cell_color(
         self,
         terrain: Terrain,
-        plant_value: float,
+        plant_energy: float,
     ) -> tuple[int, int, int]:
-        if self._is_plant_cell(terrain, plant_value):
+        if self._is_plant_cell(terrain, plant_energy):
             return PLANT_COLOR
         return TERRAIN_COLORS[terrain]
 
     @staticmethod
-    def _is_plant_cell(terrain: Terrain, plant_value: float) -> bool:
-        return terrain != Terrain.WATER and plant_value >= PLANT_CELL_THRESHOLD
+    def _is_plant_cell(terrain: Terrain, plant_energy: float) -> bool:
+        return (
+            terrain != Terrain.WATER
+            and plant_energy >= PLANT_CELL_MIN_ENERGY
+        )
 
     @staticmethod
     def _contrast_color(
@@ -519,10 +733,11 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_viewer_config()
+    env_config = load_env_config()
     env = (
-        BandMemberPatchEnv(PatchEnvConfig())
+        BandMemberPatchEnv(env_config)
         if args.multi_agent_random
-        else HunterGathererPatchEnv(PatchEnvConfig())
+        else HunterGathererPatchEnv(env_config)
     )
     viewer = PygamePatchViewer(
         env,

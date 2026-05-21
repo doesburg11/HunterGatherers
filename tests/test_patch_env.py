@@ -11,6 +11,29 @@ from hunter_gatherers.envs.patch_env import Action, MemberSex, Season, Terrain
 
 
 class HunterGathererPatchEnvTest(unittest.TestCase):
+    def fill_land_with_plants(self, env):
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.plant_capacity[:, :] = env.config.plant_energy_capacity
+        env.plant_energy[:, :] = env.config.plant_energy_capacity
+        env._update_depletion()
+
+    def deplete_camp_area(self, env):
+        cy, cx = env.camp_pos
+        radius = env.config.camp_depletion_radius
+        for y in range(env.grid_size):
+            for x in range(env.grid_size):
+                if abs(y - cy) + abs(x - cx) <= radius:
+                    env.plant_energy[y, x] = 0.0
+        env._update_depletion()
+
+    def assert_foraging_areas_do_not_overlap(self, env, old_camp):
+        distance = (
+            abs(env.camp_pos[0] - old_camp[0])
+            + abs(env.camp_pos[1] - old_camp[1])
+        )
+        self.assertGreater(distance, 2 * env.config.camp_depletion_radius)
+
     def unique_member_count(self, env):
         positions = env.member_positions.reshape(-1, 2)
         unique_positions = {(int(y), int(x)) for y, x in positions}
@@ -59,16 +82,30 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertEqual(env.member_positions.shape, (2, 15, 2))
         self.assertEqual(self.unique_member_count(env), 30)
 
-    def test_members_remain_unique_after_camp_move(self):
+    def test_members_remain_unique_after_automatic_camp_relocation(self):
         env = HunterGathererPatchEnv(
-            PatchEnvConfig(global_seed=12, num_bands=2)
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                global_seed=12,
+                num_bands=2,
+                members_per_band=3,
+                camp_depletion_radius=1,
+                camp_depletion_threshold=0.5,
+            )
         )
         env.reset(seed=13)
+        self.fill_land_with_plants(env)
+        old_camp = env.camp_pos
+        self.deplete_camp_area(env)
 
-        env.step(Action.MOVE_CAMP_EAST)
+        env.step(Action.STAY)
 
-        self.assertEqual(env.member_positions.shape, (2, 15, 2))
-        self.assertEqual(self.unique_member_count(env), 30)
+        self.assertNotEqual(env.camp_pos, old_camp)
+        self.assert_foraging_areas_do_not_overlap(env, old_camp)
+        self.assertEqual(env.num_camp_moves, 1)
+        self.assertEqual(env.member_positions.shape, (2, 3, 2))
+        self.assertEqual(self.unique_member_count(env), 6)
         self.assertEqual(env.agent_pos, env.camp_pos)
 
     def test_controlled_member_cannot_move_into_occupied_cell(self):
@@ -118,6 +155,10 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertEqual(env.member_sex[0, 0], MemberSex.FEMALE)
         self.assertEqual(env.member_sex[0, 1], MemberSex.MALE)
         self.assertEqual(env.member_energy.shape, (2, 4))
+        self.assertEqual(env.member_hydration.shape, (2, 4))
+        self.assertTrue(
+            np.all(env.member_hydration == env.config.initial_hydration)
+        )
         self.assertEqual(info["population"], 8)
         self.assertEqual(info["max_population"], 8)
         self.assertEqual(len(info["active_agent_ids"]), 8)
@@ -131,6 +172,53 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
 
         self.assertEqual(env.member_energy[0, 0], 42.0)
         self.assertEqual(env.energy, 42.0)
+
+    def test_camp_potential_energy_sums_unreaped_energy_in_camp_radius(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                camp_depletion_radius=1,
+            )
+        )
+        env.reset(seed=18)
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.plant_capacity[:, :] = 0.0
+        env.plant_energy[:, :] = 0.0
+        env.camp_pos = (3, 3)
+        env.band_camp_positions[0] = env.camp_pos
+        inside_energy = {
+            (3, 3): 4.0,
+            (2, 3): 3.0,
+            (4, 3): 2.0,
+            (3, 2): 1.0,
+            (3, 4): 0.5,
+        }
+        for pos, energy in inside_energy.items():
+            env.plant_capacity[pos] = env.config.plant_energy_capacity
+            env.plant_energy[pos] = energy
+        env.plant_capacity[3, 5] = env.config.plant_energy_capacity
+        env.plant_energy[3, 5] = 8.0
+        env._update_depletion()
+
+        expected_energy = sum(inside_energy.values())
+
+        self.assertAlmostEqual(env.camp_potential_energy(), expected_energy)
+        self.assertAlmostEqual(
+            env._build_info()["camp_potential_energy"],
+            expected_energy,
+        )
+
+    def test_hydration_alias_updates_controlled_member_hydration(self):
+        env = HunterGathererPatchEnv(PatchEnvConfig(members_per_band=3))
+        env.reset(seed=19)
+
+        env.hydration = 37.0
+
+        self.assertEqual(env.member_hydration[0, 0], 37.0)
+        self.assertEqual(env.hydration, 37.0)
 
     def test_member_state_reports_lifecycle_fields(self):
         env = HunterGathererPatchEnv(PatchEnvConfig(members_per_band=3))
@@ -146,49 +234,113 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertEqual(state.age, 0)
         self.assertEqual(state.sex, MemberSex.MALE)
         self.assertEqual(state.energy, env.config.initial_energy)
+        self.assertEqual(state.hydration, env.config.initial_hydration)
         self.assertEqual(state.position, env._member_position(0, 1))
 
-    def test_gather_removes_plants_and_adds_energy(self):
-        env = HunterGathererPatchEnv(PatchEnvConfig(global_seed=1))
+    def test_entering_plant_cell_eats_and_adds_energy(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                global_seed=1,
+            )
+        )
         env.reset(seed=2)
-        y, x = env.agent_pos
-        env.plant_food[y, x] = 1.0
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.plant_capacity[:, :] = 0.0
+        env.plant_energy[:, :] = 0.0
+        env._set_member_position(0, 0, (3, 3))
+        env.camp_pos = (3, 3)
+        target = (3, 4)
+        env.plant_capacity[target] = 8.0
+        env.plant_energy[target] = 8.0
         env.energy = 50.0
 
-        _, reward, terminated, truncated, info = env.step(Action.GATHER)
+        _, reward, terminated, truncated, info = env.step(Action.MOVE_EAST)
 
         self.assertFalse(terminated)
         self.assertFalse(truncated)
-        self.assertLess(env.plant_food[y, x], 1.0)
-        self.assertEqual(env.depletion[y, x], 0.0)
+        expected_plant_energy = (
+            8.0
+            - env.config.plant_eat_amount
+            + env.config.plant_regrowth_base * 1.35
+        )
+        self.assertAlmostEqual(env.plant_energy[target], expected_plant_energy)
+        expected_depletion = 1.0 - (
+            expected_plant_energy / env.config.plant_energy_capacity
+        )
+        self.assertAlmostEqual(env.depletion[target], expected_depletion)
         self.assertGreater(env.energy, 50.0)
         self.assertGreater(reward, 0.0)
-        self.assertEqual(info["gathering_events"], 1)
+        self.assertEqual(info["plant_eating_events"], 1)
 
-    def test_camp_move_changes_macro_position_without_regenerating_patch(self):
+    def test_entering_water_cell_restores_hydration(self):
         env = HunterGathererPatchEnv(
-            PatchEnvConfig(global_seed=3, camp_move_distance=10)
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                initial_hydration=50.0,
+                drink_amount=25.0,
+                thirst_per_step=1.0,
+                global_seed=20,
+            )
+        )
+        env.reset(seed=21)
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.terrain[3, 4] = Terrain.WATER
+        env.water[3, 4] = 1.0
+        env._set_member_position(0, 0, (3, 3))
+        env.camp_pos = (3, 3)
+
+        _, reward, terminated, truncated, info = env.step(Action.MOVE_EAST)
+
+        self.assertFalse(terminated)
+        self.assertFalse(truncated)
+        self.assertAlmostEqual(env.hydration, 74.0)
+        self.assertEqual(info["water_drinking_events"], 1)
+        self.assertAlmostEqual(info["last_water_gained"], 25.0)
+        self.assertGreater(reward, 0.0)
+
+    def test_depletion_relocates_camp_without_regenerating_patch(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=3,
+                global_seed=3,
+                camp_depletion_radius=1,
+                camp_depletion_threshold=0.5,
+            )
         )
         env.reset(seed=4)
+        self.fill_land_with_plants(env)
+        old_camp = env.camp_pos
         old_terrain = env.terrain.copy()
         old_water = env.water.copy()
-        old_plant_food = env.plant_food.copy()
         old_animal_density = env.animal_density.copy()
         old_danger = env.danger.copy()
-        old_depletion = env.depletion.copy()
+        self.deplete_camp_area(env)
 
-        env.step(Action.MOVE_CAMP_EAST)
+        env.step(Action.STAY)
 
-        self.assertEqual(env.macro_x, 10)
-        self.assertEqual(env.macro_y, 0)
+        self.assertNotEqual(env.camp_pos, old_camp)
+        self.assert_foraging_areas_do_not_overlap(env, old_camp)
         self.assertEqual(env.camp_id, 1)
+        self.assertEqual(env.num_camp_moves, 1)
+        expected_distance = (
+            abs(env.camp_pos[0] - old_camp[0])
+            + abs(env.camp_pos[1] - old_camp[1])
+        )
+        self.assertEqual(env.macro_distance_traveled, expected_distance)
         self.assertEqual(env.agent_pos, env.camp_pos)
         np.testing.assert_array_equal(env.terrain, old_terrain)
         np.testing.assert_array_equal(env.water, old_water)
-        np.testing.assert_allclose(env.plant_food, old_plant_food)
         np.testing.assert_allclose(env.animal_density, old_animal_density)
         np.testing.assert_allclose(env.danger, old_danger)
-        np.testing.assert_allclose(env.depletion, old_depletion)
 
     def test_patch_generation_is_deterministic_by_macro_coordinate(self):
         config = PatchEnvConfig(global_seed=5)
@@ -199,7 +351,7 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         env_b.reset(options={"macro_x": 20, "macro_y": -10})
 
         np.testing.assert_array_equal(env_a.terrain, env_b.terrain)
-        np.testing.assert_allclose(env_a.plant_food, env_b.plant_food)
+        np.testing.assert_allclose(env_a.plant_energy, env_b.plant_energy)
         np.testing.assert_allclose(env_a.animal_density, env_b.animal_density)
 
     def test_generated_patch_only_has_grass_water_and_plants(self):
@@ -211,10 +363,10 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             terrain_values,
             {Terrain.GRASSLAND, Terrain.WATER},
         )
-        self.assertTrue(np.any(env.plant_food > 0.0))
-        self.assertTrue(np.all(env.plant_food[env.water > 0.0] == 0.0))
+        self.assertTrue(np.any(env.plant_energy > 0.0))
+        self.assertTrue(np.all(env.plant_energy[env.water > 0.0] == 0.0))
         self.assertTrue(hasattr(env, "plant_capacity"))
-        self.assertTrue(np.all(env.plant_food <= env.plant_capacity))
+        self.assertTrue(np.all(env.plant_energy <= env.plant_capacity))
         self.assertTrue(np.all(env.animal_density == 0.0))
         self.assertTrue(np.all(env.danger == 0.0))
         self.assertTrue(np.all(env.depletion == 0.0))
@@ -231,7 +383,7 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         for _ in range(20):
             env.step(Action.STAY)
 
-        self.assertTrue(np.all(env.plant_food[plain_grass] == 0.0))
+        self.assertTrue(np.all(env.plant_energy[plain_grass] == 0.0))
 
     def test_generated_patch_has_west_to_east_river(self):
         env = HunterGathererPatchEnv(PatchEnvConfig(global_seed=6))
@@ -272,6 +424,23 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
 
         self.assertTrue(terminated)
         self.assertEqual(info["starvation_events"], 1)
+        self.assertEqual(info["dehydration_events"], 0)
+
+    def test_episode_terminates_on_dehydration(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                initial_energy=10.0,
+                initial_hydration=0.5,
+                members_per_band=1,
+            )
+        )
+        env.reset()
+
+        _, _, terminated, _, info = env.step(Action.STAY)
+
+        self.assertTrue(terminated)
+        self.assertEqual(info["starvation_events"], 0)
+        self.assertEqual(info["dehydration_events"], 1)
 
 
 class BandMemberPatchEnvTest(unittest.TestCase):
@@ -294,13 +463,13 @@ class BandMemberPatchEnvTest(unittest.TestCase):
             )
             self.assertEqual(infos[agent_id]["agent_id"], agent_id)
             self.assertEqual(infos[agent_id]["band_id"], 0)
+            self.assertIn("camp_potential_energy", infos[agent_id])
 
     def test_missing_actions_default_to_stay_for_all_active_members(self):
         env = BandMemberPatchEnv(
             PatchEnvConfig(
                 members_per_band=3,
                 initial_energy=10.0,
-                danger_damage_scale=0.0,
             ),
         )
         env.reset(seed=22)
@@ -308,6 +477,7 @@ class BandMemberPatchEnvTest(unittest.TestCase):
         _, rewards, terminations, truncations, infos = env.step({})
 
         np.testing.assert_allclose(env.member_energy[0], [9.85, 9.85, 9.85])
+        np.testing.assert_allclose(env.member_hydration[0], [99.0, 99.0, 99.0])
         self.assertEqual(env.member_last_action[0].tolist(), [0, 0, 0])
         self.assertEqual(set(rewards), set(env.possible_agents))
         self.assertFalse(terminations["__all__"])
@@ -317,13 +487,16 @@ class BandMemberPatchEnvTest(unittest.TestCase):
                 infos[agent_id]["last_energy_spent"],
                 0.15,
             )
+            self.assertAlmostEqual(
+                infos[agent_id]["last_hydration_spent"],
+                1.0,
+            )
 
     def test_starved_members_disappear_from_active_agents(self):
         env = BandMemberPatchEnv(
             PatchEnvConfig(
                 members_per_band=2,
                 initial_energy=0.1,
-                danger_damage_scale=0.0,
             ),
         )
         env.reset(seed=23)
@@ -345,7 +518,6 @@ class BandMemberPatchEnvTest(unittest.TestCase):
                 obs_range=5,
                 members_per_band=2,
                 initial_energy=10.0,
-                danger_damage_scale=0.0,
             ),
         )
         env.reset(seed=24)
@@ -366,26 +538,48 @@ class BandMemberPatchEnvTest(unittest.TestCase):
         self.assertEqual(env._member_position(0, 1), (3, 5))
         np.testing.assert_allclose(env.member_energy[0], [9.85, 9.85])
 
-    def test_leader_camp_move_uses_multi_agent_return_shape(self):
+    def test_auto_camp_relocation_uses_multi_agent_return_shape(self):
         env = BandMemberPatchEnv(
             PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
                 members_per_band=2,
-                camp_move_distance=10,
-                danger_damage_scale=0.0,
+                camp_depletion_radius=1,
+                camp_depletion_threshold=0.5,
             ),
         )
         env.reset(seed=25)
+        old_camp = env.camp_pos
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.plant_capacity[:, :] = env.config.plant_energy_capacity
+        env.plant_energy[:, :] = env.config.plant_energy_capacity
+        env._update_depletion()
+        cy, cx = env.camp_pos
+        for y in range(env.grid_size):
+            for x in range(env.grid_size):
+                if abs(y - cy) + abs(x - cx) <= 1:
+                    env.plant_energy[y, x] = 0.0
+        env._update_depletion()
 
         _, rewards, terminations, truncations, infos = env.step(
-            {"band_0_member_0": Action.MOVE_CAMP_EAST}
+            {"band_0_member_0": Action.STAY}
         )
 
-        self.assertEqual(env.macro_x, 10)
         self.assertEqual(env.num_camp_moves, 1)
+        camp_distance = (
+            abs(env.camp_pos[0] - old_camp[0])
+            + abs(env.camp_pos[1] - old_camp[1])
+        )
+        self.assertGreater(camp_distance, 2 * env.config.camp_depletion_radius)
         self.assertEqual(set(rewards), set(env.possible_agents))
         self.assertIn("__all__", terminations)
         self.assertIn("__all__", truncations)
-        self.assertEqual(infos["band_0_member_0"]["last_energy_spent"], 20.0)
+        self.assertEqual(infos["band_0_member_0"]["camp_id"], 1)
+        self.assertAlmostEqual(
+            infos["band_0_member_0"]["last_energy_spent"],
+            0.15,
+        )
 
 
 if __name__ == "__main__":

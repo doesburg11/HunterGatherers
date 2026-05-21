@@ -1,6 +1,88 @@
+[viewer]
+# Pixel size of each grid cell before scale is applied.
 cell_size = 18
+
+# Sidebar width before scale is applied.
 sidebar_width = 280
+
+# UI scale multiplier for the whole pygame window.
 scale = 1.7
+
+# Render frames per second.
 fps = 12
+
+# Reset seed used by the viewer.
 seed = 123
+
+# Milliseconds between automatic random-policy steps.
 auto_step_delay_ms = 180
+
+[environment]
+# Local grid side length. Must be odd.
+grid_size = 31
+
+# Square local observation size around each agent. Must be odd.
+obs_range = 11
+
+# Episode cutoff in steps.
+max_steps = 2000
+
+# Number of bands placed in the patch.
+num_bands = 1
+
+# Number of member slots in each band.
+members_per_band = 15
+
+# Starting body energy for each member.
+initial_energy = 100.0
+
+# Upper cap for member body energy.
+max_energy = 150.0
+
+# Starting body water for each member.
+initial_hydration = 100.0
+
+# Upper cap for member body water.
+max_hydration = 100.0
+
+# Body water lost by each living member every step.
+thirst_per_step = 1.0
+
+# Body water restored automatically when a member enters a water cell.
+drink_amount = 25.0
+
+# Global multiplier applied to movement costs.
+movement_cost = 1.0
+
+# Cost multiplier for moving onto grass.
+grass_movement_cost = 1.0
+
+# Cost multiplier for moving onto water.
+water_movement_cost = 4.5
+
+# Maximum direct energy stored in a full plant cell.
+plant_energy_capacity = 8.0
+
+# Maximum direct plant energy transferred automatically when a member enters a
+# plant cell.
+plant_eat_amount = 2.0
+
+# Plant energy added each step to plant cells, before seasonal scaling.
+plant_regrowth_base = 0.08
+
+# Number of steps per season.
+season_length = 250
+
+# Manhattan radius around the camp used to measure nearby plant depletion.
+# Automatic relocation excludes candidate camps whose radius overlaps the old
+# camp radius.
+camp_depletion_radius = 5
+
+# Camp relocates automatically when nearby plant depletion reaches this value.
+camp_depletion_threshold = 0.75
+
+# Optional energy cost paid by each living band member when camp relocates.
+camp_relocation_cost = 0.0
+
+# Base seed for deterministic patch generation.
+global_seed = 12345

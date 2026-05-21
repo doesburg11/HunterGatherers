@@ -1,37 +1,78 @@
 [environment]
+# Local grid side length. Must be odd so there is a center cell.
 grid_size = 31
-obs_range = 11
-max_steps = 2000
-num_bands = 1
-members_per_band = 15
-initial_energy = 100.0
-max_energy = 150.0
-movement_cost = 1.0
-rest_recovery = 0.5
-plant_food_gain = 8.0
-animal_food_gain = 20.0
-gather_amount = 0.25
-hunt_amount = 0.2
-plant_regrowth_base = 0.01
-animal_regrowth_base = 0.005
-season_length = 250
-camp_move_cost = 20.0
-camp_move_distance = 10
-danger_damage_scale = 2.0
-trail_memory_decay = 0.995
-depletion_decay = 0.0005
-global_seed = 12345
 
-[terrain]
-# Terrain order: grassland, woodland, dense forest, water, hill, marsh.
-plant_base = [0.55, 0.75, 0.65, 0.05, 0.18, 0.45]
-animal_base = [0.72, 0.58, 0.42, 0.18, 0.22, 0.48]
-movement_cost = [1.0, 1.35, 1.8, 3.0, 2.0, 2.2]
-danger_base = [0.35, 0.2, 0.35, 0.1, 0.55, 0.6]
+# Width and height of the square local observation around each agent.
+# Must be odd.
+obs_range = 11
+
+# Episode cutoff in steps.
+max_steps = 2000
+
+# Number of bands placed in the patch.
+num_bands = 1
+
+# Number of member slots per band at reset.
+members_per_band = 15
+
+# Starting body energy for each member.
+initial_energy = 100.0
+
+# Upper cap for member body energy.
+max_energy = 150.0
+
+# Starting body water for each member.
+initial_hydration = 100.0
+
+# Upper cap for member body water.
+max_hydration = 100.0
+
+# Body water lost by each living member every step.
+thirst_per_step = 1.0
+
+# Body water restored automatically when a member enters a water cell.
+drink_amount = 25.0
+
+# Global multiplier applied to terrain and distance movement costs.
+movement_cost = 1.0
+
+# Cost multiplier for moving onto grass.
+grass_movement_cost = 1.0
+
+# Cost multiplier for moving onto water.
+water_movement_cost = 4.5
+
+# Maximum direct energy stored in a full plant cell.
+plant_energy_capacity = 8.0
+
+# Maximum direct plant energy transferred automatically when a member enters a
+# plant cell.
+plant_eat_amount = 2.0
+
+# Plant energy added each step to plant cells, before seasonal scaling.
+plant_regrowth_base = 0.08
+
+# Number of steps per season. Seasons cycle spring, summer, autumn, winter.
+season_length = 250
+
+# Manhattan radius around the camp used to measure nearby plant depletion.
+# Automatic relocation excludes candidate camps whose radius overlaps the old
+# camp radius.
+camp_depletion_radius = 5
+
+# Camp relocates automatically when nearby plant depletion reaches this value.
+camp_depletion_threshold = 0.75
+
+# Optional energy cost paid by each living band member when camp relocates.
+camp_relocation_cost = 0.0
+
+# Base seed for deterministic patch generation.
+global_seed = 12345
 
 [season]
 # Season order: spring, summer, autumn, winter.
+# Multiplies initial plant energy and plant regrowth.
 plant_mod = [1.35, 1.15, 0.75, 0.15]
-animal_mod = [0.85, 1.15, 1.05, 0.55]
+
+# Multiplies movement costs.
 cost_mod = [1.05, 0.9, 1.05, 1.35]
-risk_mod = [0.85, 0.8, 1.05, 1.3]

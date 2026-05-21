@@ -22,7 +22,6 @@ class RllibBandMemberPatchEnvTest(unittest.TestCase):
             {
                 "patch_env_config": {
                     "members_per_band": 2,
-                    "danger_damage_scale": 0.0,
                 }
             }
         )
@@ -33,7 +32,7 @@ class RllibBandMemberPatchEnvTest(unittest.TestCase):
         self.assertEqual(set(infos), set(env.possible_agents))
 
         observations, rewards, terminateds, truncateds, infos = env.step(
-            {"band_0_member_0": Action.REST}
+            {"band_0_member_0": Action.STAY}
         )
 
         self.assertEqual(set(rewards), set(env.possible_agents))

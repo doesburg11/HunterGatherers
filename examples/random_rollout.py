@@ -18,6 +18,7 @@ def main() -> None:
             "steps": info["step_count"],
             "total_reward": round(total_reward, 3),
             "energy": round(info["energy"], 3),
+            "camp_potential_energy": round(info["camp_potential_energy"], 3),
             "season": info["season"],
             "camp_moves": info["num_camp_moves"],
             "macro": (info["macro_x"], info["macro_y"]),
