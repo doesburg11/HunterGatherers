@@ -60,12 +60,43 @@ grass_movement_cost = 1.0
 # Cost multiplier for moving onto water.
 water_movement_cost = 4.5
 
+# Fraction of moved internal and carried resource energy spent per move before
+# terrain and seasonal multipliers.
+movement_energy_rate = 0.01
+
+# Relative movement load of one carried water unit.
+water_load_factor = 1.0
+
 # Maximum direct energy stored in a full plant cell.
 plant_energy_capacity = 8.0
 
 # Maximum direct plant energy transferred automatically when a member enters a
 # plant cell.
 plant_eat_amount = 2.0
+
+# Maximum external food energy a member can carry back to camp.
+food_carry_capacity = 30.0
+
+# Maximum external water units a member can carry back to camp.
+water_carry_capacity = 30.0
+
+# Water units collected for carrying when a member enters water.
+water_collect_amount = 25.0
+
+# Members eat harvested plants directly only until this internal reserve.
+personal_energy_reserve = 100.0
+
+# Camp storage feeds members at camp below this body energy.
+camp_food_withdraw_threshold = 80.0
+
+# Maximum food energy a member can take from camp storage per step.
+camp_food_withdraw_amount = 5.0
+
+# Camp storage hydrates members at camp below this hydration level.
+camp_water_withdraw_threshold = 80.0
+
+# Maximum water units a member can take from camp storage per step.
+camp_water_withdraw_amount = 10.0
 
 # Plant energy added each step to plant cells, before seasonal scaling.
 plant_regrowth_base = 0.08
@@ -76,10 +107,10 @@ season_length = 250
 # Manhattan radius around the camp used to measure nearby plant depletion.
 # Automatic relocation excludes candidate camps whose radius overlaps the old
 # camp radius.
-camp_depletion_radius = 5
+camp_depletion_radius = 3
 
 # Camp relocates automatically when nearby plant depletion reaches this value.
-camp_depletion_threshold = 0.75
+camp_depletion_threshold = 0.35
 
 # Optional energy cost paid by each living band member when camp relocates.
 camp_relocation_cost = 0.0

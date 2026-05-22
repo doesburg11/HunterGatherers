@@ -12,8 +12,8 @@ patch with automatic camp relocation when nearby resources are depleted.
 - 31 x 31 default local camp grid
 - configurable bands with 15 members each by default
 - one member maximum per grid cell
-- grass, water, edible plant energy, camp, member, energy, hydration, and
-  season layers
+- grass, water, edible plant energy, camp, member, energy, hydration, carried
+  resource, camp storage, and season layers
 - seasonal resource dynamics
 - hard-border local movement
 - automatic camp relocation when the plant area around camp is depleted,
@@ -29,11 +29,17 @@ multiple bands through `PatchEnvConfig`.
 
 - Terrain is intentionally simple: cells are either grass or water.
 - Plants are the only edible resource. Plant cells store direct energy, and
-  members automatically eat from a plant cell when they enter it.
+  members harvest from a plant cell when they enter it.
 - By default, a full plant cell holds up to 8 energy and entering a plant cell
-  transfers up to 2 energy.
+  harvests up to 2 energy. Members eat harvested plants directly until their
+  personal reserve, then carry surplus food back to camp.
 - Members also need water. Hydration drops every step, and members
-  automatically drink when they enter a water cell.
+  automatically drink and collect carried water when they enter a water cell.
+- Carried food and water are deposited into camp storage when members return
+  to camp. Members at camp can withdraw from shared food and water stores when
+  they are below the configured support thresholds.
+- Movement energy cost scales with internal body energy plus carried food and
+  carried water load, then terrain and seasonal multipliers are applied.
 - Band camps relocate automatically when the plant cells around camp are
   depleted. The new camp's foraging radius cannot overlap the old camp's
   foraging radius. Relocation does not regenerate the river, lake, terrain, or
@@ -141,6 +147,7 @@ arrow keys        move
 space             stay
 a                 toggle random autoplay
 n                 reset with a new seed
+r                 deplete the current camp radius and test recamping
 escape            quit
 ```
 

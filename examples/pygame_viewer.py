@@ -52,6 +52,8 @@ BAND_COLORS = {
 
 CONTROLLED_MEMBER_COLOR = (255, 238, 88)
 CAMP_COLOR = (245, 236, 198)
+CAMP_RADIUS_FILL = (245, 236, 198, 34)
+CAMP_RADIUS_OUTLINE = (255, 247, 209)
 CONFIG_PATH = Path(__file__).with_name("pygame_viewer_config.toml")
 
 
@@ -203,6 +205,10 @@ class PygamePatchViewer:
         if self.terminated or self.truncated:
             return
 
+        if event.key == pygame.K_r:
+            self._trigger_recamping_test()
+            return
+
         if event.key == pygame.K_UP:
             self._step(Action.MOVE_NORTH)
         elif event.key == pygame.K_DOWN:
@@ -264,6 +270,15 @@ class PygamePatchViewer:
             "population": multi_env.population,
         }
 
+    def _trigger_recamping_test(self) -> None:
+        self.autoplay = False
+        self.last_auto_step_ms = pygame.time.get_ticks()
+        camp_radius = self.env._camp_radius_mask(self.env.camp_pos)
+        resource_cells = camp_radius & (self.env.plant_capacity > 0.0)
+        self.env.plant_energy[resource_cells] = 0.0
+        self.env._update_depletion()
+        self.env._maybe_relocate_depleted_camp()
+
     @staticmethod
     def _controlled_agent_id() -> str:
         return "band_0_member_0"
@@ -298,8 +313,85 @@ class PygamePatchViewer:
                     self._scale(1),
                 )
 
+        self._draw_camp_radii()
         self._draw_camps()
         self._draw_members()
+
+    def _draw_camp_radii(self) -> None:
+        radius = int(self.env.config.camp_depletion_radius)
+        if radius <= 0:
+            return
+
+        cell = self.cell_size
+        thickness = self._scale(2)
+        overlay = pygame.Surface(
+            (
+                self.env.grid_size * cell,
+                self.env.grid_size * cell,
+            ),
+            pygame.SRCALPHA,
+        )
+
+        for camp_y, camp_x in self.env.band_camp_positions:
+            cy = int(camp_y)
+            cx = int(camp_x)
+            y_min = max(0, cy - radius)
+            y_max = min(self.env.grid_size - 1, cy + radius)
+            x_min = max(0, cx - radius)
+            x_max = min(self.env.grid_size - 1, cx + radius)
+
+            for y in range(y_min, y_max + 1):
+                for x in range(x_min, x_max + 1):
+                    if abs(y - cy) + abs(x - cx) > radius:
+                        continue
+
+                    rect = pygame.Rect(x * cell, y * cell, cell, cell)
+                    pygame.draw.rect(overlay, CAMP_RADIUS_FILL, rect)
+                    self._draw_camp_radius_edges(
+                        overlay,
+                        rect,
+                        y,
+                        x,
+                        cy,
+                        cx,
+                        radius,
+                        thickness,
+                    )
+
+        self.screen.blit(overlay, (0, 0))
+
+    def _draw_camp_radius_edges(
+        self,
+        surface: pygame.Surface,
+        rect: pygame.Rect,
+        y: int,
+        x: int,
+        camp_y: int,
+        camp_x: int,
+        radius: int,
+        thickness: int,
+    ) -> None:
+        edge_color = CAMP_RADIUS_OUTLINE
+        neighbors = (
+            (-1, 0, rect.topleft, rect.topright),
+            (1, 0, rect.bottomleft, rect.bottomright),
+            (0, -1, rect.topleft, rect.bottomleft),
+            (0, 1, rect.topright, rect.bottomright),
+        )
+        for dy, dx, start, end in neighbors:
+            ny = y + dy
+            nx = x + dx
+            outside_grid = (
+                ny < 0
+                or ny >= self.env.grid_size
+                or nx < 0
+                or nx >= self.env.grid_size
+            )
+            outside_radius = (
+                abs(ny - camp_y) + abs(nx - camp_x) > radius
+            )
+            if outside_grid or outside_radius:
+                pygame.draw.line(surface, edge_color, start, end, thickness)
 
     def _draw_camps(self) -> None:
         cell = self.cell_size
@@ -410,9 +502,45 @@ class PygamePatchViewer:
             x,
             y,
         )
-        return self._draw_metric_row(
+        y = self._draw_metric_row(
+            "Camp food",
+            f"{float(self.env.camp_stored_food[0]):.1f}",
+            x,
+            y,
+        )
+        y = self._draw_metric_row(
+            "Camp water",
+            f"{float(self.env.camp_stored_water[0]):.1f}",
+            x,
+            y,
+        )
+        y = self._draw_metric_row(
+            "Carried food",
+            f"{float(np.sum(self.env.member_carried_food[0])):.1f}",
+            x,
+            y,
+        )
+        y = self._draw_metric_row(
+            "Carried water",
+            f"{float(np.sum(self.env.member_carried_water[0])):.1f}",
+            x,
+            y,
+        )
+        y = self._draw_metric_row(
             "Depletion",
             f"{self.env.local_depletion_level:.0%}",
+            x,
+            y,
+        )
+        y = self._draw_metric_row(
+            "Camp moves",
+            str(self.env.num_camp_moves),
+            x,
+            y,
+        )
+        return self._draw_metric_row(
+            "Relocated",
+            "yes" if self.env._last_camp_relocated else "no",
             x,
             y,
         )
@@ -439,7 +567,6 @@ class PygamePatchViewer:
         y: int,
         chart_height: int,
     ) -> int:
-        y = self._draw_section_title("Resources", x, y)
         chart_width = self.sidebar_width - self._scale(36)
         band_id = 0
         member_count = self.env.config.members_per_band

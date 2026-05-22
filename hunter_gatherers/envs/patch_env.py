@@ -94,11 +94,48 @@ class PatchEnvConfig:
         "water_movement_cost",
         4.5,
     )
+    movement_energy_rate: float = _default_config_value(
+        "movement_energy_rate",
+        0.01,
+    )
+    water_load_factor: float = _default_config_value("water_load_factor", 1.0)
     plant_energy_capacity: float = _default_config_value(
         "plant_energy_capacity",
         8.0,
     )
     plant_eat_amount: float = _default_config_value("plant_eat_amount", 2.0)
+    food_carry_capacity: float = _default_config_value(
+        "food_carry_capacity",
+        30.0,
+    )
+    water_carry_capacity: float = _default_config_value(
+        "water_carry_capacity",
+        30.0,
+    )
+    water_collect_amount: float = _default_config_value(
+        "water_collect_amount",
+        25.0,
+    )
+    personal_energy_reserve: float = _default_config_value(
+        "personal_energy_reserve",
+        100.0,
+    )
+    camp_food_withdraw_threshold: float = _default_config_value(
+        "camp_food_withdraw_threshold",
+        80.0,
+    )
+    camp_food_withdraw_amount: float = _default_config_value(
+        "camp_food_withdraw_amount",
+        5.0,
+    )
+    camp_water_withdraw_threshold: float = _default_config_value(
+        "camp_water_withdraw_threshold",
+        80.0,
+    )
+    camp_water_withdraw_amount: float = _default_config_value(
+        "camp_water_withdraw_amount",
+        10.0,
+    )
     plant_regrowth_base: float = _default_config_value(
         "plant_regrowth_base",
         0.01,
@@ -170,12 +207,36 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             )
         if self.config.camp_relocation_cost < 0.0:
             raise ValueError("camp_relocation_cost must be non-negative")
+        if self.config.movement_energy_rate < 0.0:
+            raise ValueError("movement_energy_rate must be non-negative")
+        if self.config.water_load_factor < 0.0:
+            raise ValueError("water_load_factor must be non-negative")
+        if self.config.food_carry_capacity < 0.0:
+            raise ValueError("food_carry_capacity must be non-negative")
+        if self.config.water_carry_capacity < 0.0:
+            raise ValueError("water_carry_capacity must be non-negative")
+        if self.config.water_collect_amount < 0.0:
+            raise ValueError("water_collect_amount must be non-negative")
+        if self.config.personal_energy_reserve < 0.0:
+            raise ValueError("personal_energy_reserve must be non-negative")
+        if self.config.camp_food_withdraw_threshold < 0.0:
+            raise ValueError(
+                "camp_food_withdraw_threshold must be non-negative"
+            )
+        if self.config.camp_food_withdraw_amount < 0.0:
+            raise ValueError("camp_food_withdraw_amount must be non-negative")
+        if self.config.camp_water_withdraw_threshold < 0.0:
+            raise ValueError(
+                "camp_water_withdraw_threshold must be non-negative"
+            )
+        if self.config.camp_water_withdraw_amount < 0.0:
+            raise ValueError("camp_water_withdraw_amount must be non-negative")
         self.grid_size = self.config.grid_size
         self.action_space = spaces.Discrete(len(Action))
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(11, self.config.obs_range, self.config.obs_range),
+            shape=(15, self.config.obs_range, self.config.obs_range),
             dtype=np.float32,
         )
 
@@ -228,6 +289,22 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         )
         self.member_hydration: np.ndarray = np.empty(
             (self.config.num_bands, self.config.members_per_band),
+            dtype=np.float32,
+        )
+        self.member_carried_food: np.ndarray = np.empty(
+            (self.config.num_bands, self.config.members_per_band),
+            dtype=np.float32,
+        )
+        self.member_carried_water: np.ndarray = np.empty(
+            (self.config.num_bands, self.config.members_per_band),
+            dtype=np.float32,
+        )
+        self.camp_stored_food: np.ndarray = np.empty(
+            self.config.num_bands,
+            dtype=np.float32,
+        )
+        self.camp_stored_water: np.ndarray = np.empty(
+            self.config.num_bands,
             dtype=np.float32,
         )
         self.member_last_food_gained: np.ndarray = np.empty(
@@ -321,7 +398,17 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             options.get("initial_hydration", self.config.initial_hydration)
         )
         self._initialize_member_lifecycle(initial_energy, initial_hydration)
-        self.stored_food = float(options.get("stored_food", 0.0))
+        self.camp_stored_food = np.full(
+            self.config.num_bands,
+            float(options.get("stored_food", 0.0)),
+            dtype=np.float32,
+        )
+        self.camp_stored_water = np.full(
+            self.config.num_bands,
+            float(options.get("stored_water", 0.0)),
+            dtype=np.float32,
+        )
+        self._sync_stored_food_alias()
         self.camp_age = 0
         self.local_depletion_level = 0.0
         self.num_camp_moves = 0
@@ -378,6 +465,14 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             initial_hydration,
             dtype=np.float32,
         )
+        self.member_carried_food = np.zeros(
+            (self.config.num_bands, self.config.members_per_band),
+            dtype=np.float32,
+        )
+        self.member_carried_water = np.zeros(
+            (self.config.num_bands, self.config.members_per_band),
+            dtype=np.float32,
+        )
         self._sync_population()
         self._clear_member_step_stats()
 
@@ -413,6 +508,8 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.member_alive[band_id, member_id] = False
         self.member_energy[band_id, member_id] = 0.0
         self.member_hydration[band_id, member_id] = 0.0
+        self.member_carried_food[band_id, member_id] = 0.0
+        self.member_carried_water[band_id, member_id] = 0.0
         self._sync_population()
 
     def _update_member_survival(self) -> tuple[int, int]:
@@ -451,6 +548,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         else:
             self._spend_energy(0.15)
 
+        self._exchange_camp_resources_for_alive_members()
         self._apply_danger()
         self._update_resources()
         self._update_animals()
@@ -892,13 +990,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             self._spend_member_energy(band_id, member_id, 0.15)
             return
         terrain = Terrain(int(self.terrain[ny, nx]))
-        move_cost = self._movement_cost_for_terrain(terrain)
-        distance_cost = 0.015 * self._distance_from_camp((ny, nx))
         self._set_member_position(band_id, member_id, (ny, nx))
         self._spend_member_energy(
             band_id,
             member_id,
-            self.config.movement_cost * move_cost + distance_cost,
+            self._member_movement_cost(band_id, member_id, terrain, (ny, nx)),
         )
         self._consume_cell_resources(band_id, member_id)
 
@@ -909,6 +1005,31 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             terrain_cost = self.config.grass_movement_cost
         return float(terrain_cost * SEASON_COST_MOD[self.season])
 
+    def _member_movement_cost(
+        self,
+        band_id: int,
+        member_id: int,
+        terrain: Terrain,
+        target: tuple[int, int],
+    ) -> float:
+        moved_energy = (
+            max(0.0, self._member_energy(band_id, member_id))
+            + float(self.member_carried_food[band_id, member_id])
+            + (
+                self.config.water_load_factor
+                * float(self.member_carried_water[band_id, member_id])
+            )
+        )
+        terrain_cost = self._movement_cost_for_terrain(terrain)
+        distance_cost = 0.015 * self._distance_from_camp(target)
+        return float(
+            self.config.movement_cost
+            * self.config.movement_energy_rate
+            * moved_energy
+            * terrain_cost
+            + distance_cost
+        )
+
     def _consume_cell_resources(self, band_id: int, member_id: int) -> None:
         if not self.member_alive[band_id, member_id]:
             return
@@ -918,24 +1039,55 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
     def _consume_plant_energy(self, band_id: int, member_id: int) -> None:
         y, x = self._member_position(band_id, member_id)
         available_energy = float(self.plant_energy[y, x])
-        eaten_energy = min(available_energy, self.config.plant_eat_amount)
-        self.plant_energy[y, x] = max(0.0, available_energy - eaten_energy)
+        body_need = max(
+            0.0,
+            min(
+                self.config.personal_energy_reserve,
+                self.config.max_energy,
+            )
+            - self._member_energy(band_id, member_id),
+        )
+        carry_room = max(
+            0.0,
+            self.config.food_carry_capacity
+            - float(self.member_carried_food[band_id, member_id]),
+        )
+        harvested_energy = min(
+            available_energy,
+            self.config.plant_eat_amount,
+            body_need + carry_room,
+        )
+        eaten_energy = min(harvested_energy, body_need)
+        carried_energy = min(harvested_energy - eaten_energy, carry_room)
+        self.plant_energy[y, x] = max(
+            0.0,
+            available_energy - harvested_energy,
+        )
         self._update_depletion()
-        self._record_food_gained(band_id, member_id, eaten_energy)
+        self._record_food_gained(band_id, member_id, harvested_energy)
         self._add_member_energy(band_id, member_id, eaten_energy)
-        self.plant_eating_events += int(eaten_energy > 0.0)
+        self.member_carried_food[band_id, member_id] += carried_energy
+        self.plant_eating_events += int(harvested_energy > 0.0)
 
     def _consume_water(self, band_id: int, member_id: int) -> None:
         y, x = self._member_position(band_id, member_id)
         water_gained = 0.0
         if self.water[y, x] > 0.0:
-            before = self._member_hydration(band_id, member_id)
-            self._add_member_hydration(
-                band_id,
-                member_id,
-                self.config.drink_amount,
+            hydration_need = max(
+                0.0,
+                self.config.max_hydration
+                - self._member_hydration(band_id, member_id),
             )
-            water_gained = self._member_hydration(band_id, member_id) - before
+            drunk_water = min(self.config.drink_amount, hydration_need)
+            carry_room = max(
+                0.0,
+                self.config.water_carry_capacity
+                - float(self.member_carried_water[band_id, member_id]),
+            )
+            carried_water = min(self.config.water_collect_amount, carry_room)
+            self._add_member_hydration(band_id, member_id, drunk_water)
+            self.member_carried_water[band_id, member_id] += carried_water
+            water_gained = drunk_water + carried_water
         self._record_water_gained(band_id, member_id, water_gained)
         self.water_drinking_events += int(water_gained > 0.0)
 
@@ -1153,6 +1305,91 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         if band_id == 0 and member_id == 0:
             self._last_water_gained += amount
 
+    def _sync_stored_food_alias(self) -> None:
+        self.stored_food = (
+            float(self.camp_stored_food[0])
+            if len(self.camp_stored_food) > 0
+            else 0.0
+        )
+
+    def _member_at_band_camp(self, band_id: int, member_id: int) -> bool:
+        return self._member_position(band_id, member_id) == tuple(
+            int(value) for value in self.band_camp_positions[band_id]
+        )
+
+    def _exchange_camp_resources_for_alive_members(self) -> None:
+        for band_id in range(self.config.num_bands):
+            for member_id in range(self.config.members_per_band):
+                if not self.member_alive[band_id, member_id]:
+                    continue
+                if not self._member_at_band_camp(band_id, member_id):
+                    continue
+                self._deposit_member_resources_at_camp(band_id, member_id)
+
+            for member_id in range(self.config.members_per_band):
+                if not self.member_alive[band_id, member_id]:
+                    continue
+                if not self._member_at_band_camp(band_id, member_id):
+                    continue
+                self._withdraw_member_resources_from_camp(band_id, member_id)
+
+        self._sync_stored_food_alias()
+
+    def _deposit_member_resources_at_camp(
+        self,
+        band_id: int,
+        member_id: int,
+    ) -> None:
+        carried_food = float(self.member_carried_food[band_id, member_id])
+        carried_water = float(self.member_carried_water[band_id, member_id])
+        if carried_food > 0.0:
+            self.camp_stored_food[band_id] += carried_food
+            self.member_carried_food[band_id, member_id] = 0.0
+        if carried_water > 0.0:
+            self.camp_stored_water[band_id] += carried_water
+            self.member_carried_water[band_id, member_id] = 0.0
+
+    def _withdraw_member_resources_from_camp(
+        self,
+        band_id: int,
+        member_id: int,
+    ) -> None:
+        energy_need = max(
+            0.0,
+            min(
+                self.config.camp_food_withdraw_threshold,
+                self.config.max_energy,
+            )
+            - self._member_energy(band_id, member_id),
+        )
+        food_taken = min(
+            energy_need,
+            self.config.camp_food_withdraw_amount,
+            float(self.camp_stored_food[band_id]),
+        )
+        if food_taken > 0.0:
+            self.camp_stored_food[band_id] -= food_taken
+            self._add_member_energy(band_id, member_id, food_taken)
+            self._record_food_gained(band_id, member_id, food_taken)
+
+        hydration_need = max(
+            0.0,
+            min(
+                self.config.camp_water_withdraw_threshold,
+                self.config.max_hydration,
+            )
+            - self._member_hydration(band_id, member_id),
+        )
+        water_taken = min(
+            hydration_need,
+            self.config.camp_water_withdraw_amount,
+            float(self.camp_stored_water[band_id]),
+        )
+        if water_taken > 0.0:
+            self.camp_stored_water[band_id] -= water_taken
+            self._add_member_hydration(band_id, member_id, water_taken)
+            self._record_water_gained(band_id, member_id, water_taken)
+
     def _apply_danger(self) -> None:
         self._apply_member_danger(0, 0)
 
@@ -1252,7 +1489,57 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             float(self.season) / float(max(Season)),
             dtype=np.float32,
         )
-        padded_channels.extend([energy_plane, hydration_plane, season_plane])
+        carried_food_plane = np.full(
+            (self.config.obs_range, self.config.obs_range),
+            np.clip(
+                self.member_carried_food[band_id, member_id]
+                / max(1.0, self.config.food_carry_capacity),
+                0.0,
+                1.0,
+            ),
+            dtype=np.float32,
+        )
+        carried_water_plane = np.full(
+            (self.config.obs_range, self.config.obs_range),
+            np.clip(
+                self.member_carried_water[band_id, member_id]
+                / max(1.0, self.config.water_carry_capacity),
+                0.0,
+                1.0,
+            ),
+            dtype=np.float32,
+        )
+        camp_food_plane = np.full(
+            (self.config.obs_range, self.config.obs_range),
+            np.clip(
+                self.camp_stored_food[band_id]
+                / max(1.0, self.config.food_carry_capacity),
+                0.0,
+                1.0,
+            ),
+            dtype=np.float32,
+        )
+        camp_water_plane = np.full(
+            (self.config.obs_range, self.config.obs_range),
+            np.clip(
+                self.camp_stored_water[band_id]
+                / max(1.0, self.config.water_carry_capacity),
+                0.0,
+                1.0,
+            ),
+            dtype=np.float32,
+        )
+        padded_channels.extend(
+            [
+                energy_plane,
+                hydration_plane,
+                season_plane,
+                carried_food_plane,
+                carried_water_plane,
+                camp_food_plane,
+                camp_water_plane,
+            ]
+        )
         return np.stack(padded_channels, axis=0).astype(np.float32)
 
     def _camp_layer(self) -> np.ndarray:
@@ -1346,6 +1633,8 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             ],
             "member_energy": self.member_energy.tolist(),
             "member_hydration": self.member_hydration.tolist(),
+            "member_carried_food": self.member_carried_food.tolist(),
+            "member_carried_water": self.member_carried_water.tolist(),
             "active_agent_ids": self.active_agent_ids(),
             "controlled_agent_id": self._agent_id(0, 0),
             "num_bands": self.config.num_bands,
@@ -1353,6 +1642,10 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             "energy": self.energy,
             "hydration": self.hydration,
             "stored_food": self.stored_food,
+            "camp_stored_food": self.camp_stored_food.tolist(),
+            "camp_stored_water": self.camp_stored_water.tolist(),
+            "carried_food": float(self.member_carried_food[0, 0]),
+            "carried_water": float(self.member_carried_water[0, 0]),
             "population": self.population,
             "max_population": (
                 self.config.num_bands * self.config.members_per_band
@@ -1477,6 +1770,7 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
         actions = self._member_actions(action_dict, active_slots)
         self._apply_member_moves(actions)
         self._apply_member_non_move_actions(actions)
+        self._exchange_camp_resources_for_alive_members()
         self._apply_controlled_band_danger(active_slots)
         self._update_resources()
         self._update_animals()
@@ -1661,13 +1955,16 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
         target: tuple[int, int],
     ) -> None:
         terrain = Terrain(int(self.terrain[target]))
-        move_cost = self._movement_cost_for_terrain(terrain)
-        distance_cost = 0.015 * self._distance_from_camp(target)
         self._set_member_position(self.controlled_band_id, member_id, target)
         self._spend_member_energy(
             self.controlled_band_id,
             member_id,
-            self.config.movement_cost * move_cost + distance_cost,
+            self._member_movement_cost(
+                self.controlled_band_id,
+                member_id,
+                terrain,
+                target,
+            ),
         )
         self._consume_cell_resources(self.controlled_band_id, member_id)
 

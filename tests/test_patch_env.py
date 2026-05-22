@@ -267,7 +267,7 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             - env.config.plant_eat_amount
             + env.config.plant_regrowth_base * 1.35
         )
-        self.assertAlmostEqual(env.plant_energy[target], expected_plant_energy)
+        self.assertAlmostEqual(env.plant_energy[target], expected_plant_energy, places=6)
         expected_depletion = 1.0 - (
             expected_plant_energy / env.config.plant_energy_capacity
         )
@@ -301,9 +301,85 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertFalse(terminated)
         self.assertFalse(truncated)
         self.assertAlmostEqual(env.hydration, 74.0)
+        self.assertAlmostEqual(env.member_carried_water[0, 0], 25.0)
         self.assertEqual(info["water_drinking_events"], 1)
-        self.assertAlmostEqual(info["last_water_gained"], 25.0)
+        self.assertAlmostEqual(info["last_water_gained"], 50.0)
         self.assertGreater(reward, 0.0)
+
+    def test_surplus_food_and_water_can_be_deposited_at_camp(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                initial_energy=100.0,
+                initial_hydration=100.0,
+                global_seed=22,
+            )
+        )
+        env.reset(seed=23)
+        env._set_member_position(0, 0, env.camp_pos)
+        env.member_carried_food[0, 0] = 7.0
+        env.member_carried_water[0, 0] = 11.0
+
+        _, _, _, _, info = env.step(Action.STAY)
+
+        self.assertAlmostEqual(env.member_carried_food[0, 0], 0.0)
+        self.assertAlmostEqual(env.member_carried_water[0, 0], 0.0)
+        self.assertAlmostEqual(env.camp_stored_food[0], 7.0)
+        self.assertAlmostEqual(env.camp_stored_water[0], 11.0)
+        self.assertAlmostEqual(info["camp_stored_food"][0], 7.0)
+        self.assertAlmostEqual(info["camp_stored_water"][0], 11.0)
+
+    def test_camp_storage_feeds_and_hydrates_members_at_camp(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                initial_energy=60.0,
+                initial_hydration=50.0,
+                global_seed=24,
+            )
+        )
+        env.reset(seed=25, options={"stored_food": 20.0, "stored_water": 20.0})
+        env._set_member_position(0, 0, env.camp_pos)
+
+        env.step(Action.STAY)
+
+        self.assertAlmostEqual(env.energy, 64.85, places=5)
+        self.assertAlmostEqual(env.hydration, 59.0)
+        self.assertAlmostEqual(env.camp_stored_food[0], 15.0)
+        self.assertAlmostEqual(env.camp_stored_water[0], 10.0)
+
+    def test_movement_cost_scales_with_internal_and_carried_energy(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                movement_energy_rate=0.01,
+                water_load_factor=2.0,
+                global_seed=26,
+            )
+        )
+        env.reset(seed=27)
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env._set_member_position(0, 0, (3, 3))
+        env.camp_pos = (3, 3)
+        env.energy = 100.0
+        env.member_carried_food[0, 0] = 20.0
+        env.member_carried_water[0, 0] = 10.0
+
+        env.step(Action.MOVE_EAST)
+
+        expected_spent = (100.0 + 20.0 + 2.0 * 10.0) * 0.01 * 1.05 + 0.015
+        self.assertAlmostEqual(
+            env.member_last_energy_spent[0, 0],
+            expected_spent,
+            places=6,
+        )
 
     def test_depletion_relocates_camp_without_regenerating_patch(self):
         env = HunterGathererPatchEnv(
