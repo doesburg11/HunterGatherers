@@ -569,7 +569,7 @@ class PygamePatchViewer:
     ) -> int:
         chart_width = self.sidebar_width - self._scale(36)
         band_id = 0
-        member_count = self.env.config.members_per_band
+        member_count = self.env.member_capacity_per_band
         header_height = self._scale(20)
         row_height = max(
             self._scale(12),

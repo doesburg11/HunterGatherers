@@ -30,8 +30,11 @@ max_steps = 2000
 # Number of bands placed in the patch.
 num_bands = 1
 
-# Number of member slots in each band.
+# Number of living members in each band at reset.
 members_per_band = 15
+
+# Maximum member slots per band, including inactive reserve slots for births.
+max_members_per_band = 30
 
 # Starting body energy for each member.
 initial_energy = 100.0
@@ -114,6 +117,15 @@ camp_depletion_threshold = 0.35
 
 # Optional energy cost paid by each living band member when camp relocates.
 camp_relocation_cost = 0.0
+
+# Band-level reproduction.
+reproduction_enabled = true
+reproduction_adult_age = 250
+birth_rate = 0.002
+birth_food_cost = 40.0
+birth_water_cost = 30.0
+newborn_energy = 60.0
+newborn_hydration = 80.0
 
 # Base seed for deterministic patch generation.
 global_seed = 12345

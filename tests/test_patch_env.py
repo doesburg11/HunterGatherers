@@ -164,6 +164,79 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertEqual(len(info["active_agent_ids"]), 8)
         self.assertEqual(info["controlled_agent_id"], "band_0_member_0")
 
+    def test_reset_can_reserve_inactive_member_slots(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                num_bands=1,
+                members_per_band=2,
+                max_members_per_band=4,
+            )
+        )
+
+        _, info = env.reset(seed=16)
+
+        self.assertEqual(env.member_ids.shape, (1, 4))
+        self.assertEqual(
+            env.member_alive[0].tolist(),
+            [True, True, False, False],
+        )
+        self.assertEqual(env.next_member_ids.tolist(), [2])
+        self.assertEqual(info["population"], 2)
+        self.assertEqual(info["max_population"], 4)
+
+    def test_band_reproduction_activates_reserved_slot(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                num_bands=1,
+                members_per_band=2,
+                max_members_per_band=3,
+                reproduction_adult_age=1,
+                birth_rate=1.0,
+                birth_food_cost=10.0,
+                birth_water_cost=5.0,
+                newborn_energy=50.0,
+                newborn_hydration=60.0,
+                thirst_per_step=0.0,
+            )
+        )
+        env.reset(seed=17, options={"stored_food": 20.0, "stored_water": 20.0})
+
+        _, _, _, _, info = env.step(Action.STAY)
+
+        self.assertEqual(env.population, 3)
+        self.assertTrue(env.member_alive[0, 2])
+        self.assertEqual(env.member_ids[0, 2], 2)
+        self.assertEqual(env.next_member_ids.tolist(), [3])
+        self.assertEqual(env.member_age[0, 2], 0)
+        self.assertAlmostEqual(env.member_energy[0, 2], 50.0)
+        self.assertAlmostEqual(env.member_hydration[0, 2], 60.0)
+        self.assertAlmostEqual(env.camp_stored_food[0], 10.0)
+        self.assertAlmostEqual(env.camp_stored_water[0], 15.0)
+        self.assertEqual(info["birth_events"], 1)
+
+    def test_band_reproduction_requires_adult_parents(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                num_bands=1,
+                members_per_band=2,
+                max_members_per_band=3,
+                reproduction_adult_age=10,
+                birth_rate=1.0,
+                thirst_per_step=0.0,
+            )
+        )
+        env.reset(seed=18, options={"stored_food": 100.0, "stored_water": 100.0})
+
+        env.step(Action.STAY)
+
+        self.assertEqual(env.population, 2)
+        self.assertFalse(env.member_alive[0, 2])
+        self.assertEqual(env.birth_events, 0)
+
     def test_energy_alias_updates_controlled_member_energy(self):
         env = HunterGathererPatchEnv(PatchEnvConfig(members_per_band=3))
         env.reset(seed=17)
