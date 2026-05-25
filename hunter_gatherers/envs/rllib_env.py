@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from gymnasium import spaces
+import numpy as np
 
 from hunter_gatherers.envs.patch_env import BandMemberPatchEnv, PatchEnvConfig
 
@@ -50,6 +51,7 @@ class RllibBandMemberPatchEnv(_RllibBase):  # type: ignore[misc, valid-type]
 
         super().__init__()
         patch_config, controlled_band_id = _parse_env_config(config)
+        self.controlled_band_id = controlled_band_id
         self.env = BandMemberPatchEnv(
             patch_config,
             controlled_band_id=controlled_band_id,
@@ -64,7 +66,7 @@ class RllibBandMemberPatchEnv(_RllibBase):  # type: ignore[misc, valid-type]
     ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         observations, infos = self.env.reset(seed=seed, options=options)
         self._sync_from_wrapped_env()
-        return observations, infos
+        return self._flatten_observations(observations), infos
 
     def step(
         self,
@@ -76,9 +78,17 @@ class RllibBandMemberPatchEnv(_RllibBase):  # type: ignore[misc, valid-type]
         dict[str, bool],
         dict[str, dict[str, Any]],
     ]:
-        result = self.env.step(action_dict)
+        observations, rewards, terminateds, truncateds, infos = self.env.step(
+            action_dict
+        )
         self._sync_from_wrapped_env()
-        return result
+        return (
+            self._flatten_observations(observations),
+            rewards,
+            terminateds,
+            truncateds,
+            infos,
+        )
 
     def render(self) -> str:
         return self.env.render()
@@ -90,9 +100,39 @@ class RllibBandMemberPatchEnv(_RllibBase):  # type: ignore[misc, valid-type]
         return self.action_spaces[agent_id]
 
     def _sync_from_wrapped_env(self) -> None:
-        self.possible_agents = list(self.env.possible_agents)
+        self.possible_agents = self._possible_agent_ids()
         self.agents = list(self.env.agents)
-        self.observation_spaces = dict(self.env.observation_spaces)
-        self.action_spaces = dict(self.env.action_spaces)
+        observation_space = self._flatten_space(self.env.observation_space)
+        self.observation_spaces = {
+            agent_id: observation_space for agent_id in self.possible_agents
+        }
+        self.action_spaces = {
+            agent_id: self.env.action_space for agent_id in self.possible_agents
+        }
         self.observation_space = spaces.Dict(self.observation_spaces)
         self.action_space = spaces.Dict(self.action_spaces)
+
+    def _possible_agent_ids(self) -> list[str]:
+        max_births = self.env.config.max_steps
+        max_member_identity = self.env.member_capacity_per_band + max_births
+        return [
+            f"band_{self.controlled_band_id}_member_{member_id}"
+            for member_id in range(max_member_identity)
+        ]
+
+    @staticmethod
+    def _flatten_space(observation_space: spaces.Box) -> spaces.Box:
+        return spaces.Box(
+            low=observation_space.low.reshape(-1),
+            high=observation_space.high.reshape(-1),
+            dtype=observation_space.dtype,
+        )
+
+    @staticmethod
+    def _flatten_observations(
+        observations: dict[str, Any],
+    ) -> dict[str, np.ndarray]:
+        return {
+            agent_id: np.asarray(observation, dtype=np.float32).reshape(-1)
+            for agent_id, observation in observations.items()
+        }

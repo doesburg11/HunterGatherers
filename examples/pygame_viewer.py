@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
@@ -36,6 +37,7 @@ TERRAIN_LABELS = {
 
 PLANT_COLOR = (55, 174, 65)
 PLANT_CELL_MIN_ENERGY = 0.01
+ANIMAL_COLOR = (215, 102, 53)
 
 RANDOM_POLICY_ACTIONS = (
     Action.STAY,
@@ -50,7 +52,6 @@ BAND_COLORS = {
     1: (91, 190, 230),
 }
 
-CONTROLLED_MEMBER_COLOR = (255, 238, 88)
 CAMP_COLOR = (245, 236, 198)
 CAMP_RADIUS_FILL = (245, 236, 198, 34)
 CAMP_RADIUS_OUTLINE = (255, 247, 209)
@@ -60,11 +61,12 @@ CONFIG_PATH = Path(__file__).with_name("pygame_viewer_config.toml")
 @dataclass(frozen=True)
 class ViewerConfig:
     cell_size: int = 18
-    sidebar_width: int = 280
+    sidebar_width: int = 380
     scale: float = 1.8
     fps: int = 12
     seed: int = 123
     auto_step_delay_ms: int = 180
+    checkpoint_dir: str = "checkpoints/"
 
 
 def load_viewer_config(path: Path = CONFIG_PATH) -> ViewerConfig:
@@ -86,6 +88,12 @@ def load_viewer_config(path: Path = CONFIG_PATH) -> ViewerConfig:
                 ViewerConfig.auto_step_delay_ms,
             )
         ),
+        checkpoint_dir=str(
+            viewer_values.get(
+                "checkpoint_dir",
+                ViewerConfig.checkpoint_dir,
+            )
+        ),
     )
     return viewer_config
 
@@ -105,11 +113,15 @@ class PygamePatchViewer:
         *,
         autoplay: bool = False,
         random_policy_all_members: bool = False,
+        policy_fn: Callable[
+            [dict[str, np.ndarray]], dict[str, int]
+        ] | None = None,
     ):
         self.env = env
         self.config = config
         self.autoplay = autoplay
         self.random_policy_all_members = random_policy_all_members
+        self.policy_fn = policy_fn
         self.random_policy_rng = np.random.default_rng(config.seed)
         self.multi_agent_env = (
             env if isinstance(env, BandMemberPatchEnv) else None
@@ -154,7 +166,10 @@ class PygamePatchViewer:
             bold=True,
         )
 
-        _, self.info = self.env.reset(seed=config.seed)
+        obs, self.info = self.env.reset(seed=config.seed)
+        self._last_obs: dict[str, np.ndarray] = (
+            obs if isinstance(obs, dict) else {}
+        )
 
     def _scale(self, value: int | float) -> int:
         return max(1, int(round(value * self.scale)))
@@ -224,7 +239,9 @@ class PygamePatchViewer:
         self.last_reward = 0.0
         self.terminated = False
         self.truncated = False
-        _, self.info = self.env.reset(seed=seed)
+        obs, self.info = self.env.reset(seed=seed)
+        if isinstance(obs, dict):
+            self._last_obs = obs
 
     def _step(self, action: Action | int) -> None:
         if self.random_policy_all_members:
@@ -246,21 +263,27 @@ class PygamePatchViewer:
             return
 
         multi_env = self._multi_agent_env()
-        action_dict = {
-            agent_id: int(self._random_policy_action())
-            for agent_id in multi_env.agents
-        }
+        if self.policy_fn is not None:
+            action_dict = self.policy_fn(self._last_obs)
+        else:
+            action_dict = {
+                agent_id: int(
+                    self._random_policy_action_for_agent(agent_id)
+                )
+                for agent_id in multi_env.agents
+            }
         self._step_multi_agent(action_dict)
 
     def _step_multi_agent(self, action_dict: dict[str, int]) -> None:
         multi_env = self._multi_agent_env()
         (
-            _,
+            obs,
             rewards,
             terminations,
             truncations,
             infos,
         ) = multi_env.step(action_dict)
+        self._last_obs = obs
         self.last_reward = float(sum(rewards.values()))
         self.terminated = bool(terminations["__all__"])
         self.truncated = bool(truncations["__all__"])
@@ -285,6 +308,31 @@ class PygamePatchViewer:
 
     def _random_policy_action(self) -> Action:
         return self.random_policy_rng.choice(RANDOM_POLICY_ACTIONS)
+
+    def _random_policy_action_for_agent(self, agent_id: str) -> Action:
+        multi_env = self._multi_agent_env()
+        band_id, member_id = multi_env._member_for_agent(agent_id)
+        carried_food = float(multi_env.member_carried_food[band_id, member_id])
+        carried_water = float(
+            multi_env.member_carried_water[band_id, member_id]
+        )
+        if carried_food <= 0.0 and carried_water <= 0.0:
+            return self._random_policy_action()
+
+        member_y, member_x = multi_env._member_position(band_id, member_id)
+        camp_y, camp_x = (
+            int(value) for value in multi_env.band_camp_positions[band_id]
+        )
+        if (
+            abs(member_y - camp_y) + abs(member_x - camp_x)
+            <= multi_env.config.camp_storage_radius
+        ):
+            return Action.STAY
+        if abs(member_y - camp_y) >= abs(member_x - camp_x):
+            return (
+                Action.MOVE_NORTH if member_y > camp_y else Action.MOVE_SOUTH
+            )
+        return Action.MOVE_WEST if member_x > camp_x else Action.MOVE_EAST
 
     def _multi_agent_env(self) -> BandMemberPatchEnv:
         if self.multi_agent_env is None:
@@ -315,6 +363,7 @@ class PygamePatchViewer:
 
         self._draw_camp_radii()
         self._draw_camps()
+        self._draw_animals()
         self._draw_members()
 
     def _draw_camp_radii(self) -> None:
@@ -422,9 +471,8 @@ class PygamePatchViewer:
                     int(x) * cell + cell // 2,
                     int(y) * cell + cell // 2,
                 )
-                controlled = band_id == 0 and member_id == 0
-                radius = max(4, int(cell * (0.36 if controlled else 0.28)))
-                fill = CONTROLLED_MEMBER_COLOR if controlled else color
+                radius = max(4, int(cell * 0.28))
+                fill = color
                 pygame.draw.circle(
                     self.screen,
                     (32, 33, 35),
@@ -432,6 +480,27 @@ class PygamePatchViewer:
                     radius + self._scale(2),
                 )
                 pygame.draw.circle(self.screen, fill, center, radius)
+
+    def _draw_animals(self) -> None:
+        if not hasattr(self.env, "animal_alive"):
+            return
+        cell = self.cell_size
+        for animal_id, alive in enumerate(self.env.animal_alive):
+            if not alive:
+                continue
+            y, x = self.env.animal_positions[animal_id]
+            center = (
+                int(x) * cell + cell // 2,
+                int(y) * cell + cell // 2,
+            )
+            radius = max(3, int(cell * 0.20))
+            pygame.draw.circle(
+                self.screen,
+                (39, 26, 22),
+                center,
+                radius + self._scale(2),
+            )
+            pygame.draw.circle(self.screen, ANIMAL_COLOR, center, radius)
 
     def _draw_sidebar(self) -> None:
         left = self.env.grid_size * self.cell_size
@@ -450,29 +519,30 @@ class PygamePatchViewer:
             self._scale(2),
         )
 
-        x = left + self._scale(18)
-        y = self._scale(18)
-        y = self._draw_camp_metrics(x, y)
-        y += self._scale(16)
-        y = self._draw_legend(x, y)
-        y += self._scale(16)
-        available_height = self.screen.get_height() - y - self._scale(12)
-        chart_height = max(self._scale(180), available_height)
+        margin = self._scale(12)
+        col_gap = self._scale(14)
+        chart_col_width = self._scale(165)
+
+        # Left column: member resource chart running the full available height.
+        chart_x = left + margin
+        chart_y = self._scale(18)
+        chart_height = self.screen.get_height() - chart_y - self._scale(12)
         self._draw_member_resource_chart(
-            x,
-            y,
+            chart_x,
+            chart_y,
             chart_height,
+            chart_col_width,
         )
+
+        # Right column: camp metrics then legend, starting at the same top.
+        right_x = left + margin + chart_col_width + col_gap
+        y = self._scale(18)
+        y = self._draw_camp_metrics(right_x, y)
+        y += self._scale(16)
+        self._draw_legend(right_x, y)
 
     def _draw_legend(self, x: int, y: int) -> int:
         y = self._draw_section_title("Legend", x, y)
-        y = self._draw_symbol_entry(
-            "Leader",
-            x,
-            y,
-            "circle",
-            CONTROLLED_MEMBER_COLOR,
-        )
         y = self._draw_symbol_entry(
             "Band 0 member",
             x,
@@ -481,9 +551,9 @@ class PygamePatchViewer:
             BAND_COLORS[0],
         )
         y = self._draw_symbol_entry("Camp", x, y, "triangle", CAMP_COLOR)
+        y = self._draw_symbol_entry("Animals", x, y, "circle", ANIMAL_COLOR)
         y += self._scale(5)
 
-        y = self._draw_section_title("Cells", x, y)
         y = self._draw_swatch_entry("Plants", PLANT_COLOR, x, y)
         for terrain, label in TERRAIN_LABELS.items():
             y = self._draw_swatch_entry(
@@ -532,18 +602,7 @@ class PygamePatchViewer:
             x,
             y,
         )
-        y = self._draw_metric_row(
-            "Camp moves",
-            str(self.env.num_camp_moves),
-            x,
-            y,
-        )
-        return self._draw_metric_row(
-            "Relocated",
-            "yes" if self.env._last_camp_relocated else "no",
-            x,
-            y,
-        )
+        return y
 
     def _draw_metric_row(
         self,
@@ -566,8 +625,9 @@ class PygamePatchViewer:
         x: int,
         y: int,
         chart_height: int,
+        width: int | None = None,
     ) -> int:
-        chart_width = self.sidebar_width - self._scale(36)
+        chart_width = width if width is not None else self.sidebar_width - self._scale(36)
         band_id = 0
         member_count = self.env.member_capacity_per_band
         header_height = self._scale(20)
@@ -625,11 +685,7 @@ class PygamePatchViewer:
             )
             self.screen.blit(id_surface, id_rect)
 
-            energy_color = (
-                CONTROLLED_MEMBER_COLOR
-                if member_id == 0
-                else BAND_COLORS[0]
-            )
+            energy_color = BAND_COLORS[0]
             water_color = TERRAIN_COLORS[Terrain.WATER]
             if not alive:
                 energy_color = (85, 88, 82)
@@ -844,6 +900,7 @@ class PygamePatchViewer:
         if line_height is None:
             line_height = self._scale(22)
         return y + line_height
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()

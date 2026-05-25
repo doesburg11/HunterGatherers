@@ -28,18 +28,21 @@ class RllibBandMemberPatchEnvTest(unittest.TestCase):
 
         self.assertIsInstance(env, MultiAgentEnv)
         observations, infos = env.reset(seed=31)
-        self.assertEqual(set(observations), set(env.possible_agents))
-        self.assertEqual(set(infos), set(env.possible_agents))
+        self.assertEqual(set(observations), set(env.agents))
+        self.assertEqual(set(infos), set(env.agents))
+        self.assertTrue(set(env.agents).issubset(set(env.possible_agents)))
+        for observation in observations.values():
+            self.assertEqual(observation.shape, (15 * 11 * 11,))
 
         observations, rewards, terminateds, truncateds, infos = env.step(
             {"band_0_member_0": Action.STAY}
         )
 
-        self.assertEqual(set(rewards), set(env.possible_agents))
+        self.assertTrue(set(rewards).issubset(set(env.possible_agents)))
         self.assertIn("__all__", terminateds)
         self.assertIn("__all__", truncateds)
         self.assertEqual(set(observations), set(env.agents))
-        self.assertEqual(set(infos), set(env.possible_agents))
+        self.assertTrue(set(infos).issubset(set(env.possible_agents)))
 
 
 if __name__ == "__main__":

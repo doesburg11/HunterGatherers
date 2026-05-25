@@ -35,7 +35,37 @@ max_hydration = 100.0
 thirst_per_step = 1.0
 
 # Body water restored automatically when a member enters a water cell.
-drink_amount = 25.0
+drink_amount = 5.0
+
+# Use kcal/kg/km movement costs and body-mass-scaled energy stores.
+use_physical_energetics = true
+
+# Body mass assigned to starting adult members when physical energetics is on.
+adult_body_mass_kg = 70.0
+
+# Body mass assigned to newborn members when physical energetics is on.
+newborn_body_mass_kg = 12.0
+
+# Starting internal energy reserve per kg body mass, in kcal/kg.
+initial_energy_per_kg = 30.0
+
+# Maximum internal energy reserve per kg body mass, in kcal/kg.
+max_energy_per_kg = 35.0
+
+# Newborn starting internal energy reserve per kg body mass, in kcal/kg.
+newborn_energy_per_kg = 30.0
+
+# Distance represented by one grid cell, in kilometers.
+cell_distance_km = 0.25
+
+# Level walking cost in kcal per kg moved per kilometer.
+walking_kcal_per_kg_km = 1.0
+
+# Carried food energy density used to convert food kcal into carried kg.
+food_energy_density_kcal_per_kg = 2500.0
+
+# Liters represented by one carried water unit. One liter is approximately 1 kg.
+water_liters_per_unit = 1.0
 
 # Global multiplier applied to terrain and distance movement costs.
 movement_cost = 1.0
@@ -53,36 +83,85 @@ movement_energy_rate = 0.01
 # Relative movement load of one carried water unit.
 water_load_factor = 1.0
 
-# Maximum direct energy stored in a full plant cell.
-plant_energy_capacity = 8.0
+# Maximum direct energy stored in a full plant cell, in kcal.
+plant_energy_capacity = 1000.0
 
 # Maximum direct plant energy transferred automatically when a member enters a
-# plant cell.
-plant_eat_amount = 2.0
+# plant cell, in kcal.
+plant_eat_amount = 400.0
 
-# Maximum external food energy a member can carry back to camp.
-food_carry_capacity = 30.0
+# Share of harvested plant energy reserved for carrying to camp when the member
+# has food carry capacity.
+plant_carry_share = 0.5
 
-# Maximum external water units a member can carry back to camp.
-water_carry_capacity = 30.0
+# Maximum grass energy available to animals in a grassland cell.
+grass_energy_capacity = 1000.0
 
-# Water units collected for carrying when a member enters water.
-water_collect_amount = 25.0
+# Grass energy restored each step on grassland cells, before seasonal scaling.
+grass_regrowth_base = 0.25
+
+# Maximum animal food energy in a rich animal cell, in kcal.
+animal_energy_capacity = 2500.0
+
+# Number of animal agents placed at reset.
+initial_animals = 35
+
+# Maximum number of living animal agents in a patch.
+max_animals = 120
+
+# Starting animal body energy, in kcal.
+initial_animal_energy = 1200.0
+
+# Maximum animal body energy, in kcal.
+max_animal_energy = 2500.0
+
+# Energy paid when an animal moves one cell.
+animal_move_cost = 8.0
+
+# Plant energy an animal can eat from its cell per step.
+animal_eat_amount = 120.0
+
+# Animal can reproduce asexually at or above this energy.
+animal_reproduction_energy_threshold = 2000.0
+
+# Energy removed from parent on reproduction.
+animal_reproduction_cost = 900.0
+
+# Starting energy assigned to newborn animals.
+newborn_animal_energy = 800.0
+
+# Maximum animal energy harvested when a member enters an animal cell, in kcal.
+animal_hunt_amount = 800.0
+
+# Share of hunted animal energy reserved for carrying to camp.
+animal_carry_share = 1.0
+
+# Maximum external food energy a member can carry back to camp, in kcal.
+food_carry_capacity = 3000.0
+
+# Maximum external water liters a member can carry back to camp.
+water_carry_capacity = 25.0
+
+# Water liters collected for carrying when a member enters water.
+water_collect_amount = 8.0
 
 # Members eat harvested plants directly only until this internal reserve.
-personal_energy_reserve = 100.0
+personal_energy_reserve = 2100.0
 
 # Camp storage feeds members at camp below this body energy.
-camp_food_withdraw_threshold = 80.0
+camp_food_withdraw_threshold = 1800.0
 
-# Maximum food energy a member can take from camp storage per step.
-camp_food_withdraw_amount = 5.0
+# Maximum food energy a member can take from camp storage per step, in kcal.
+camp_food_withdraw_amount = 400.0
 
 # Camp storage hydrates members at camp below this hydration level.
 camp_water_withdraw_threshold = 80.0
 
-# Maximum water units a member can take from camp storage per step.
-camp_water_withdraw_amount = 10.0
+# Maximum water liters a member can take from camp storage per step.
+camp_water_withdraw_amount = 5.0
+
+# Manhattan distance from camp where members can deposit and withdraw storage.
+camp_storage_radius = 1
 
 # Plant energy added each step to plant cells, before seasonal scaling.
 plant_regrowth_base = 0.08
@@ -107,10 +186,23 @@ camp_relocation_cost = 0.0
 reproduction_enabled = true
 reproduction_adult_age = 250
 birth_rate = 0.002
-birth_food_cost = 40.0
-birth_water_cost = 30.0
+birth_food_cost = 2500.0
+birth_water_cost = 10.0
 newborn_energy = 60.0
 newborn_hydration = 80.0
+
+# Reward shaping for trainable cooperative behavior.
+# Reward per unit of plant food gained directly from a plant cell.
+plant_food_reward = 0.05
+# Reward per unit of animal food gained directly from hunting.
+# Higher than plant_food_reward to compensate for the extra movement cost
+# of chasing animals.
+animal_food_reward = 0.10
+food_deposit_reward = 0.03
+water_deposit_reward = 0.03
+birth_reward = 2.0
+population_reward = 0.001
+juvenile_survival_reward = 0.002
 
 # Base seed for deterministic patch generation.
 global_seed = 12345
