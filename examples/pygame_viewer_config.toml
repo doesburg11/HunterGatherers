@@ -1,3 +1,21 @@
+[training]
+# Number of PPO training iterations to run.
+iterations = 200
+
+# Directory to save checkpoints during and after training.
+checkpoint_dir = "checkpoints/"
+
+# Save a checkpoint every N iterations (0 = only at the end).
+checkpoint_freq = 10
+
+# Environment overrides for training.
+# Smaller band and shorter episodes = faster iterations.
+members_per_band = 8
+max_members_per_band = 16
+max_steps = 1000
+birth_rate = 0.05
+birth_food_cost = 500.0
+
 [viewer]
 # Path to the RLlib checkpoint directory used by rllib_band_eval.py.
 checkpoint_dir = "checkpoints/"
@@ -52,7 +70,7 @@ initial_hydration = 100.0
 max_hydration = 100.0
 
 # Body water lost by each living member every step.
-thirst_per_step = 1.0
+thirst_per_step = 0.2
 
 # Body water restored automatically when a member enters a water cell.
 drink_amount = 5.0
@@ -76,7 +94,7 @@ movement_cost = 1.0
 grass_movement_cost = 1.0
 
 # Cost multiplier for moving onto water.
-water_movement_cost = 4.5
+water_movement_cost = 1.5
 
 # Fraction of moved internal and carried resource energy spent per move before
 # terrain and seasonal multipliers.
@@ -94,7 +112,7 @@ plant_eat_amount = 400.0
 
 # Share of harvested plant energy reserved for carrying to camp when the member
 # has food carry capacity.
-plant_carry_share = 1.0
+plant_carry_share = 0.5
 
 # Maximum grass energy available to animals in a grassland cell.
 grass_energy_capacity = 1000.0
@@ -157,7 +175,7 @@ camp_food_withdraw_threshold = 1800.0
 camp_food_withdraw_amount = 400.0
 
 # Camp storage hydrates members at camp below this hydration level.
-camp_water_withdraw_threshold = 80.0
+camp_water_withdraw_threshold = 60.0
 
 # Maximum water units a member can take from camp storage per step.
 camp_water_withdraw_amount = 5.0
@@ -174,10 +192,14 @@ season_length = 250
 # Manhattan radius around the camp used to measure nearby plant depletion.
 # Automatic relocation excludes candidate camps whose radius overlaps the old
 # camp radius.
-camp_depletion_radius = 3
+camp_depletion_radius = 5
 
 # Camp relocates automatically when nearby plant depletion reaches this value.
-camp_depletion_threshold = 0.35
+camp_depletion_threshold = 0.75
+
+# Maximum Manhattan distance from camp to the nearest water cell. Camp also
+# relocates when this is exceeded. 0 = no water-proximity constraint.
+camp_max_water_distance = 8
 
 # Optional energy cost paid by each living band member when camp relocates.
 camp_relocation_cost = 0.0
@@ -185,18 +207,34 @@ camp_relocation_cost = 0.0
 # Band-level reproduction.
 reproduction_enabled = true
 reproduction_adult_age = 250
+max_age = 1000
+mating_radius = 3
+gestation_steps = 250
+postpartum_cooldown_steps = 500
+conception_energy_threshold = 0.5
 birth_rate = 0.1
-birth_food_cost = 2500.0
+birth_food_cost = 500.0
 birth_water_cost = 10.0
 newborn_energy = 60.0
 newborn_hydration = 80.0
 
 # Reward shaping for trainable cooperative behavior.
+plant_food_reward = 0.05
+animal_food_reward = 0.10
 food_deposit_reward = 0.03
-water_deposit_reward = 0.03
+water_collect_reward = 0.10
+water_deposit_reward = 0.30
 birth_reward = 2.0
 population_reward = 0.001
 juvenile_survival_reward = 0.002
 
 # Base seed for deterministic patch generation.
 global_seed = 12345
+
+[season]
+# Season order: spring, summer, autumn, winter.
+# Multiplies initial plant energy and plant regrowth.
+plant_mod = [1.35, 1.15, 0.75, 0.15]
+
+# Multiplies movement costs.
+cost_mod = [1.05, 0.9, 1.05, 1.35]

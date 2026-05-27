@@ -32,7 +32,7 @@ initial_hydration = 100.0
 max_hydration = 100.0
 
 # Body water lost by each living member every step.
-thirst_per_step = 1.0
+thirst_per_step = 0.2
 
 # Body water restored automatically when a member enters a water cell.
 drink_amount = 5.0
@@ -74,7 +74,7 @@ movement_cost = 1.0
 grass_movement_cost = 1.0
 
 # Cost multiplier for moving onto water.
-water_movement_cost = 4.5
+water_movement_cost = 1.5
 
 # Fraction of moved internal and carried resource energy spent per move before
 # terrain and seasonal multipliers.
@@ -92,7 +92,7 @@ plant_eat_amount = 400.0
 
 # Share of harvested plant energy reserved for carrying to camp when the member
 # has food carry capacity.
-plant_carry_share = 0.5
+plant_carry_share = 1.0
 
 # Maximum grass energy available to animals in a grassland cell.
 grass_energy_capacity = 1000.0
@@ -155,13 +155,13 @@ camp_food_withdraw_threshold = 1800.0
 camp_food_withdraw_amount = 400.0
 
 # Camp storage hydrates members at camp below this hydration level.
-camp_water_withdraw_threshold = 80.0
+camp_water_withdraw_threshold = 60.0
 
 # Maximum water liters a member can take from camp storage per step.
 camp_water_withdraw_amount = 5.0
 
 # Manhattan distance from camp where members can deposit and withdraw storage.
-camp_storage_radius = 1
+camp_storage_radius = 3
 
 # Plant energy added each step to plant cells, before seasonal scaling.
 plant_regrowth_base = 0.08
@@ -177,6 +177,10 @@ camp_depletion_radius = 5
 # Camp relocates automatically when nearby plant depletion reaches this value.
 camp_depletion_threshold = 0.75
 
+# Maximum Manhattan distance from camp to the nearest water cell. Camp also
+# relocates when this is exceeded. 0 = no water-proximity constraint.
+camp_max_water_distance = 8
+
 # Optional energy cost paid by each living band member when camp relocates.
 camp_relocation_cost = 0.0
 
@@ -185,6 +189,19 @@ camp_relocation_cost = 0.0
 # inactive member slot.
 reproduction_enabled = true
 reproduction_adult_age = 250
+# Maximum age a member can reach before dying of old age.
+# Default: 4 × reproduction_adult_age so initial adults (age 250) survive ~750
+# more steps before dying naturally (roughly 1.5 training episodes at 500 steps).
+max_age = 1000
+# Proximity-based mating: male and female must be within this Manhattan distance.
+# 0 = any alive pair suffices (old behaviour).
+mating_radius = 3
+# Steps from conception to birth (~9 months at 1 step/day → 270 steps).
+gestation_steps = 250
+# Steps a female cannot conceive again after giving birth (~2 years at 1 step/day).
+postpartum_cooldown_steps = 500
+# Fraction of max energy both parents need to be above for conception.
+conception_energy_threshold = 0.5
 birth_rate = 0.002
 birth_food_cost = 2500.0
 birth_water_cost = 10.0
@@ -199,7 +216,11 @@ plant_food_reward = 0.05
 # of chasing animals.
 animal_food_reward = 0.10
 food_deposit_reward = 0.03
-water_deposit_reward = 0.03
+# Reward per liter of water gained at a water cell (drunk + carried).
+# Set comparable to plant_food_reward so agents actively route to water.
+water_collect_reward = 0.10
+# Reward per liter of water deposited at camp.
+water_deposit_reward = 0.30
 birth_reward = 2.0
 population_reward = 0.001
 juvenile_survival_reward = 0.002

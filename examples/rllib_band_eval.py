@@ -75,6 +75,11 @@ def main() -> None:
     checkpoint_path = str(Path(checkpoint_dir).resolve())
     algo = Algorithm.from_checkpoint(checkpoint_path)
     rl_module = algo.get_module("shared_policy")
+    if rl_module is None:
+        raise SystemExit(
+            "No module named 'shared_policy' found in checkpoint. "
+            "Make sure the checkpoint was produced by rllib_band_ppo.py."
+        )
 
     def policy_fn(
         obs_dict: dict[str, np.ndarray],

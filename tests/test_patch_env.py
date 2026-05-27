@@ -29,6 +29,8 @@ def legacy_config(**kwargs):
         "camp_water_withdraw_amount": 10.0,
         "birth_food_cost": 40.0,
         "birth_water_cost": 30.0,
+        # No gestation delay in legacy tests — old behaviour was immediate birth.
+        "gestation_steps": 0,
     }
     legacy_defaults.update(kwargs)
     return PatchEnvConfig(**legacy_defaults)
@@ -423,10 +425,9 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         )
         self.assertAlmostEqual(env.depletion[target], expected_depletion)
         self.assertGreater(float(env.member_energy[0, 0]), 50.0)
-        self.assertAlmostEqual(
-            env.member_carried_food[0, 0],
-            env.config.plant_eat_amount * env.config.plant_carry_share,
-        )
+        # Agent starts hungry (energy=50 < personal_reserve=100); eats all
+        # harvested plant energy to fill body need, carries nothing.
+        self.assertAlmostEqual(env.member_carried_food[0, 0], 0.0)
         self.assertGreater(reward, 0.0)
         self.assertEqual(info["plant_eating_events"], 1)
 
@@ -469,7 +470,10 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertAlmostEqual(env.animal_individual_energy[0], 400.0)
         self.assertAlmostEqual(np.sum(env.animal_energy), 400.0)
         self.assertAlmostEqual(env.member_last_food_gained[0, 0], 800.0)
-        self.assertAlmostEqual(env.member_carried_food[0, 0], 800.0)
+        # Physical energetics: personal_reserve = max_energy = 70 kg × 35 kcal/kg = 2450.
+        # Agent starts at 1400 kcal (70 kg × 20 kcal/kg); body_need = 1050 > 800 hunted.
+        # Agent eats all 800 kcal, carries nothing.
+        self.assertAlmostEqual(env.member_carried_food[0, 0], 0.0)
         self.assertGreater(reward, 0.0)
         self.assertEqual(info["mean_animal_energy"], np.mean(env.animal_energy))
 
@@ -607,7 +611,7 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         env.step(Action.STAY)
 
         self.assertAlmostEqual(float(env.member_energy[0, 0]), 64.85, places=5)
-        self.assertAlmostEqual(float(env.member_hydration[0, 0]), 59.0)
+        self.assertAlmostEqual(float(env.member_hydration[0, 0]), 59.8, places=5)
         self.assertAlmostEqual(env.camp_stored_food[0], 15.0)
         self.assertAlmostEqual(env.camp_stored_water[0], 10.0)
 
@@ -634,9 +638,10 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
 
         self.assertAlmostEqual(env.member_energy[0, 0], 64.85, places=5)
         # Member 0 is at (cy, cx-1) which is a water cell; STAY now lets
-        # members drink from their current cell, so hydration is higher:
-        # 50 + 25 (drink) + 5 (camp withdraw to fill to 80) − 1 (thirst) = 79.
-        self.assertAlmostEqual(env.member_hydration[0, 0], 79.0)
+        # members drink from their current cell. After drinking (50+25=75),
+        # hydration exceeds the camp_water_withdraw_threshold (60), so no camp
+        # withdraw fires. Only thirst is subtracted: 75 − 0.2 = 74.8.
+        self.assertAlmostEqual(env.member_hydration[0, 0], 74.8)
         self.assertAlmostEqual(env.member_carried_food[0, 1], 0.0)
         self.assertAlmostEqual(env.member_carried_water[0, 1], 0.0)
 
@@ -930,6 +935,7 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             legacy_config(
                 initial_energy=10.0,
                 initial_hydration=0.5,
+                thirst_per_step=1.0,
                 members_per_band=1,
             )
         )
@@ -976,7 +982,7 @@ class BandMemberPatchEnvTest(unittest.TestCase):
         _, rewards, terminations, truncations, infos = env.step({})
 
         np.testing.assert_allclose(env.member_energy[0], [9.85, 9.85, 9.85])
-        np.testing.assert_allclose(env.member_hydration[0], [99.0, 99.0, 99.0])
+        np.testing.assert_allclose(env.member_hydration[0], [99.8, 99.8, 99.8])
         self.assertEqual(env.member_last_action[0].tolist(), [0, 0, 0])
         self.assertEqual(set(rewards), set(env.possible_agents))
         self.assertFalse(terminations["__all__"])
@@ -988,7 +994,7 @@ class BandMemberPatchEnvTest(unittest.TestCase):
             )
             self.assertAlmostEqual(
                 infos[agent_id]["last_hydration_spent"],
-                1.0,
+                0.2,
             )
 
     def test_starved_members_disappear_from_active_agents(self):

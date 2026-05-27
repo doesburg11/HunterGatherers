@@ -32,7 +32,7 @@ class RllibBandMemberPatchEnvTest(unittest.TestCase):
         self.assertEqual(set(infos), set(env.agents))
         self.assertTrue(set(env.agents).issubset(set(env.possible_agents)))
         for observation in observations.values():
-            self.assertEqual(observation.shape, (15 * 11 * 11,))
+            self.assertEqual(observation.shape, (16 * 11 * 11,))
 
         observations, rewards, terminateds, truncateds, infos = env.step(
             {"band_0_member_0": Action.STAY}
