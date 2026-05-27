@@ -1030,7 +1030,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.member_alive[band_id, slot] = True
         self.member_age[band_id, slot] = 0
         self.member_sex[band_id, slot] = int(self._episode_rng.integers(0, 2))
-        self.member_body_mass_kg[band_id, slot] = self.config.newborn_body_mass_kg
+        self.member_body_mass_kg[band_id, slot] = (
+            self.config.newborn_body_mass_kg
+        )
         self.member_energy[band_id, slot] = min(
             self._member_max_energy(band_id, slot),
             self._newborn_energy(),
@@ -1415,7 +1417,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         for current_band_id in band_ids:
             for member_id in range(self.member_capacity_per_band):
                 if self.member_alive[current_band_id, member_id]:
-                    agent_ids.append(self._agent_id(current_band_id, member_id))
+                    agent_ids.append(
+                        self._agent_id(current_band_id, member_id)
+                    )
         return agent_ids
 
     def _cell_has_member(
@@ -1535,7 +1539,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         if len(land_cells) == 0:
             self._sync_animal_energy_layer()
             return
-        animal_count = min(self.config.initial_animals, self.config.max_animals)
+        animal_count = min(
+            self.config.initial_animals, self.config.max_animals
+        )
         chosen = self._patch_rng.choice(
             len(land_cells),
             size=animal_count,
@@ -1558,9 +1564,8 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             return
         for animal_id in np.flatnonzero(self.animal_alive):
             y, x = self.animal_positions[int(animal_id)]
-            self.animal_energy[int(y), int(x)] += self.animal_individual_energy[
-                int(animal_id)
-            ]
+            energy = float(self.animal_individual_energy[int(animal_id)])
+            self.animal_energy[int(y), int(x)] += energy
 
     def _generate_danger(self) -> np.ndarray:
         return np.zeros((self.grid_size, self.grid_size), dtype=np.float32)
@@ -1723,8 +1728,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         animal_ids = [
             int(animal_id)
             for animal_id in np.flatnonzero(self.animal_alive)
-            if tuple(int(value) for value in self.animal_positions[int(animal_id)])
-            == (y, x)
+            if tuple(
+                int(v) for v in self.animal_positions[int(animal_id)]
+            ) == (y, x)
         ]
         available_energy = float(
             np.sum(self.animal_individual_energy[animal_ids])
@@ -1812,7 +1818,10 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         current_depletion = self._local_camp_depletion(self.camp_pos)
         self.local_depletion_level = current_depletion
         too_dry = self._camp_too_far_from_water(self.camp_pos)
-        if current_depletion < self.config.camp_depletion_threshold and not too_dry:
+        if (
+            current_depletion < self.config.camp_depletion_threshold
+            and not too_dry
+        ):
             return
 
         new_camp = self._best_camp_location()
@@ -1880,8 +1889,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 if self.terrain[y, x] == Terrain.WATER:
                     continue
                 candidate = (y, x)
-                # Skip candidates that are too far from water (when constrained).
-                if max_water_dist > 0 and float(water_distance[candidate]) > max_water_dist:
+                # Skip candidates too far from water.
+                if (
+                    max_water_dist > 0
+                    and float(water_distance[candidate]) > max_water_dist
+                ):
                     continue
                 travel_distance = self._camp_distance(current, candidate)
                 if self._camp_foraging_areas_overlap(
@@ -2097,7 +2109,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         return (
             self._camp_distance(
                 self._member_position(band_id, member_id),
-                tuple(int(value) for value in self.band_camp_positions[band_id]),
+                tuple(
+                    int(v) for v in self.band_camp_positions[band_id]
+                ),
             )
             <= self.config.camp_storage_radius
         )
@@ -2107,14 +2121,18 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             for member_id in range(self.member_capacity_per_band):
                 if not self.member_alive[band_id, member_id]:
                     continue
-                if not self._member_can_access_band_storage(band_id, member_id):
+                if not self._member_can_access_band_storage(
+                    band_id, member_id
+                ):
                     continue
                 self._deposit_member_resources_at_camp(band_id, member_id)
 
             for member_id in range(self.member_capacity_per_band):
                 if not self.member_alive[band_id, member_id]:
                     continue
-                if not self._member_can_access_band_storage(band_id, member_id):
+                if not self._member_can_access_band_storage(
+                    band_id, member_id
+                ):
                     continue
                 self._withdraw_member_resources_from_camp(band_id, member_id)
 
@@ -2236,7 +2254,8 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         for animal_id in animal_ids:
             if not self.animal_alive[animal_id]:
                 continue
-            dy, dx = directions[int(self._episode_rng.integers(len(directions)))]
+            idx = int(self._episode_rng.integers(len(directions)))
+            dy, dx = directions[idx]
             y, x = self.animal_positions[animal_id]
             ny = int(np.clip(int(y) + dy, 0, self.grid_size - 1))
             nx = int(np.clip(int(x) + dx, 0, self.grid_size - 1))
@@ -2282,7 +2301,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 < self.config.animal_reproduction_cost
             ):
                 continue
-            parent_pos = tuple(int(value) for value in self.animal_positions[animal_id])
+            parent_pos = tuple(
+                int(v) for v in self.animal_positions[animal_id]
+            )
             child_pos = self._animal_birth_position(parent_pos)
             if child_pos is None:
                 continue
@@ -2789,7 +2810,9 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
             agent_id: (truncated and not _agent_terminated(slot))
             for agent_id, slot in agent_slots
         }
-        truncations.update({agent_id: truncated for agent_id in newborn_agent_ids})
+        truncations.update(
+            {agent_id: truncated for agent_id in newborn_agent_ids}
+        )
         truncations["__all__"] = truncated
         infos = {
             agent_id: self._build_agent_info(band, slot)
@@ -2959,7 +2982,9 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
             int(np.clip(x + dx, 0, self.grid_size - 1)),
         )
 
-    def _occupied_member_positions(self) -> dict[tuple[int, int], tuple[int, int]]:
+    def _occupied_member_positions(
+        self,
+    ) -> dict[tuple[int, int], tuple[int, int]]:
         occupied: dict[tuple[int, int], tuple[int, int]] = {}
         for band_id in range(self.config.num_bands):
             for member_id in range(self.member_capacity_per_band):

@@ -107,7 +107,8 @@ class RllibBandMemberPatchEnv(_RllibBase):  # type: ignore[misc, valid-type]
             agent_id: observation_space for agent_id in self.possible_agents
         }
         self.action_spaces = {
-            agent_id: self.env.action_space for agent_id in self.possible_agents
+            agent_id: self.env.action_space
+            for agent_id in self.possible_agents
         }
         self.observation_space = spaces.Dict(self.observation_spaces)
         self.action_space = spaces.Dict(self.action_spaces)

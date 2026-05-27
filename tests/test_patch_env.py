@@ -29,7 +29,7 @@ def legacy_config(**kwargs):
         "camp_water_withdraw_amount": 10.0,
         "birth_food_cost": 40.0,
         "birth_water_cost": 30.0,
-        # No gestation delay in legacy tests — old behaviour was immediate birth.
+        # Legacy tests: no gestation delay, birth is immediate.
         "gestation_steps": 0,
     }
     legacy_defaults.update(kwargs)
@@ -267,7 +267,10 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
                 thirst_per_step=0.0,
             )
         )
-        env.reset(seed=18, options={"stored_food": 100.0, "stored_water": 100.0})
+        env.reset(
+            seed=18,
+            options={"stored_food": 100.0, "stored_water": 100.0},
+        )
         env.member_age[0, :2] = 0
 
         env.step(Action.STAY)
@@ -419,7 +422,9 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             - env.config.plant_eat_amount
             + env.config.plant_regrowth_base * 1.35
         )
-        self.assertAlmostEqual(env.plant_energy[target], expected_plant_energy, places=6)
+        self.assertAlmostEqual(
+            env.plant_energy[target], expected_plant_energy, places=6
+        )
         expected_depletion = 1.0 - (
             expected_plant_energy / env.config.plant_energy_capacity
         )
@@ -470,12 +475,15 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertAlmostEqual(env.animal_individual_energy[0], 400.0)
         self.assertAlmostEqual(np.sum(env.animal_energy), 400.0)
         self.assertAlmostEqual(env.member_last_food_gained[0, 0], 800.0)
-        # Physical energetics: personal_reserve = max_energy = 70 kg × 35 kcal/kg = 2450.
-        # Agent starts at 1400 kcal (70 kg × 20 kcal/kg); body_need = 1050 > 800 hunted.
-        # Agent eats all 800 kcal, carries nothing.
+        # Physical energetics: personal_reserve = max_energy
+        # = 70 kg × 35 kcal/kg = 2450.
+        # Agent at 1400 kcal; body_need 1050 > 800 hunted → eats all.
+        # Carries nothing.
         self.assertAlmostEqual(env.member_carried_food[0, 0], 0.0)
         self.assertGreater(reward, 0.0)
-        self.assertEqual(info["mean_animal_energy"], np.mean(env.animal_energy))
+        self.assertEqual(
+            info["mean_animal_energy"], np.mean(env.animal_energy)
+        )
 
     def test_animals_move_eat_grass_and_reproduce(self):
         env = HunterGathererPatchEnv(
@@ -611,7 +619,9 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         env.step(Action.STAY)
 
         self.assertAlmostEqual(float(env.member_energy[0, 0]), 64.85, places=5)
-        self.assertAlmostEqual(float(env.member_hydration[0, 0]), 59.8, places=5)
+        self.assertAlmostEqual(
+            float(env.member_hydration[0, 0]), 59.8, places=5
+        )
         self.assertAlmostEqual(env.camp_stored_food[0], 15.0)
         self.assertAlmostEqual(env.camp_stored_water[0], 10.0)
 
@@ -855,7 +865,9 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         env = HunterGathererPatchEnv(PatchEnvConfig(global_seed=6))
         env.reset(seed=7)
 
-        terrain_values = {Terrain(int(value)) for value in np.unique(env.terrain)}
+        terrain_values = {
+            Terrain(int(v)) for v in np.unique(env.terrain)
+        }
         self.assertEqual(
             terrain_values,
             {Terrain.GRASSLAND, Terrain.WATER},
@@ -1106,7 +1118,6 @@ class BandMemberPatchEnvTest(unittest.TestCase):
             infos["band_0_member_0"]["last_energy_spent"],
             0.15,
         )
-
 
     def test_step_survives_death_and_birth_in_same_step(self):
         # Regression: if a member dies and a newborn immediately takes its

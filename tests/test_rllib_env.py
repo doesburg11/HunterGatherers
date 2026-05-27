@@ -9,9 +9,11 @@ HAS_RAY = importlib.util.find_spec("ray") is not None
 
 
 class RllibBandMemberPatchEnvTest(unittest.TestCase):
-    @unittest.skipIf(HAS_RAY, "Ray is installed; missing dependency path unused")
+    @unittest.skipIf(HAS_RAY, "Ray is installed; unused path skipped")
     def test_constructor_explains_missing_rllib_dependency(self):
-        with self.assertRaisesRegex(RuntimeError, "hunter-gatherers\\[rllib\\]"):
+        with self.assertRaisesRegex(
+            RuntimeError, "hunter-gatherers\\[rllib\\]"
+        ):
             RllibBandMemberPatchEnv(PatchEnvConfig(members_per_band=2))
 
     @unittest.skipUnless(HAS_RAY, "Ray is not installed")

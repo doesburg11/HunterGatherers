@@ -85,10 +85,10 @@ def main() -> None:
         )
         .env_runners(num_env_runners=0)
         .training(
-            train_batch_size=4000,   # ~4 episodes per update → stable gradients
-            num_epochs=10,           # fewer passes per batch → less overfitting
-            vf_clip_param=500.0,     # match reward scale (episode returns ~5k-20k)
-            entropy_coeff=0.01,      # keep some exploration pressure
+            train_batch_size=4000,  # ~4 episodes/update → stable gradients
+            num_epochs=10,          # fewer passes/batch → less overfitting
+            vf_clip_param=500.0,    # match reward scale (~5k-20k returns)
+            entropy_coeff=0.01,     # keep some exploration pressure
         )
     )
 
