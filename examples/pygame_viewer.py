@@ -13,7 +13,7 @@ from hunter_gatherers import (
     HunterGathererPatchEnv,
     PatchEnvConfig,
 )
-from hunter_gatherers.envs.patch_env import Action, Terrain
+from hunter_gatherers.envs.patch_env import Action, Season, Terrain
 
 
 try:
@@ -543,6 +543,10 @@ class PygamePatchViewer:
 
     def _draw_legend(self, x: int, y: int) -> int:
         y = self._draw_section_title("Legend", x, y)
+        y = self._draw_metric_row("Date", self._format_date(), x, y)
+        season_name = Season(self.env.season).name.capitalize()
+        y = self._draw_metric_row("Season", season_name, x, y)
+        y += self._scale(6)
         y = self._draw_symbol_entry(
             "Band 0 member",
             x,
@@ -563,6 +567,29 @@ class PygamePatchViewer:
                 y,
             )
         return y
+
+    # (start_month, start_day, calendar_days_in_season)
+    _SEASON_CALENDAR = [(3, 21, 92), (6, 21, 92), (9, 21, 91), (12, 21, 90)]
+    _MONTH_DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+    def _format_date(self) -> str:
+        step = self.env.step_count
+        sl = self.env.config.season_length
+        steps_per_year = sl * 4
+        year = step // steps_per_year
+        day_in_year = step % steps_per_year
+        season_idx = day_in_year // sl
+        day_in_season = day_in_year % sl
+        start_month, start_day, cal_days = self._SEASON_CALENDAR[season_idx]
+        cal_offset = int(day_in_season / sl * cal_days)
+        month, day = start_month, start_day + cal_offset
+        while day > self._MONTH_DAYS[month]:
+            day -= self._MONTH_DAYS[month]
+            month = month % 12 + 1
+        # Winter crosses January 1: flip the calendar year when month rolls past December.
+        if season_idx == 3 and month < 12:
+            year += 1
+        return f"{year:04d}-{month:02d}-{day:02d}"
 
     def _draw_camp_metrics(self, x: int, y: int) -> int:
         y = self._draw_section_title("Camp", x, y)

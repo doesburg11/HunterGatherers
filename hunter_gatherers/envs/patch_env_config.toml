@@ -184,6 +184,13 @@ camp_max_water_distance = 8
 # Optional energy cost paid by each living band member when camp relocates.
 camp_relocation_cost = 0.0
 
+# Number of sustenance steps the band must exhaust from stored food/water before
+# departing a depleted camp. The band stays put (eating stores) until stored food
+# drops to within migration_cost + alive_members × withdraw_rate × this many steps,
+# AND stored water drops to within alive_members × thirst_per_step × this many steps.
+# 0 = move as soon as the environment is depleted (old behaviour).
+camp_store_departure_steps = 10
+
 # Band-level reproduction. A birth can occur when a band has at least one
 # living adult female and one living adult male, enough camp food/water, and an
 # inactive member slot.

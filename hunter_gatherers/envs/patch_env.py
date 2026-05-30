@@ -250,6 +250,10 @@ class PatchEnvConfig:
         "camp_relocation_cost",
         0.0,
     )
+    camp_store_departure_steps: int = _default_config_value(
+        "camp_store_departure_steps",
+        10,
+    )
     camp_max_water_distance: int = _default_config_value(
         "camp_max_water_distance",
         0,
@@ -380,6 +384,8 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             )
         if self.config.camp_relocation_cost < 0.0:
             raise ValueError("camp_relocation_cost must be non-negative")
+        if self.config.camp_store_departure_steps < 0:
+            raise ValueError("camp_store_departure_steps must be non-negative")
         if self.config.reproduction_adult_age < 0:
             raise ValueError("reproduction_adult_age must be non-negative")
         if self.config.mating_radius < 0:
@@ -694,6 +700,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         )
         self._sync_stored_food_alias()
         self.camp_age = 0
+        self._prev_camp_pos: tuple[int, int] | None = None
         self.local_depletion_level = 0.0
         self.num_camp_moves = 0
         self.plant_eating_events = 0
@@ -1813,6 +1820,13 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         water_dist = self._distance_to_nearest_water()[camp]
         return float(water_dist) > max_dist
 
+    def _band_relocation_food_cost(self, band_id: int, distance: int) -> float:
+        return sum(
+            self._member_relocation_cost(band_id, member_id, distance)
+            for member_id in range(self.member_capacity_per_band)
+            if self.member_alive[band_id, member_id]
+        )
+
     def _maybe_relocate_depleted_camp(self) -> None:
         self._update_depletion()
         current_depletion = self._local_camp_depletion(self.camp_pos)
@@ -1830,8 +1844,36 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         if (
             self._local_camp_depletion(new_camp)
             >= self.config.camp_depletion_threshold
-            and self._camp_too_far_from_water(new_camp)
+            or self._camp_too_far_from_water(new_camp)
         ):
+            return
+
+        travel_distance = self._camp_distance(self.camp_pos, new_camp)
+        migration_food_cost = self._band_relocation_food_cost(0, travel_distance)
+        stored_food = float(self.camp_stored_food[0])
+        stored_water = float(self.camp_stored_water[0])
+
+        if self.config.camp_store_departure_steps > 0:
+            alive = int(np.sum(self.member_alive[0]))
+            food_buffer = (
+                migration_food_cost
+                + alive * self.config.camp_food_withdraw_amount
+                * self.config.camp_store_departure_steps
+            )
+            water_buffer = (
+                alive * self.config.thirst_per_step
+                * self.config.camp_store_departure_steps
+            )
+            # Still have enough stored to sustain the band — eat from stores first.
+            if stored_food > food_buffer or stored_water > water_buffer:
+                return
+
+        # Ensure stores cover the migration energy cost.
+        if stored_food + sum(
+            self._member_energy(0, m)
+            for m in range(self.member_capacity_per_band)
+            if self.member_alive[0, m]
+        ) < migration_food_cost:
             return
 
         self._relocate_camp(new_camp)
@@ -1880,6 +1922,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
 
     def _best_camp_location(self) -> tuple[int, int]:
         current = self.camp_pos
+        prev = self._prev_camp_pos
         water_distance = self._distance_to_nearest_water()
         max_water_dist = self.config.camp_max_water_distance
         best_key: tuple[float, float, int, int, int] | None = None
@@ -1896,9 +1939,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 ):
                     continue
                 travel_distance = self._camp_distance(current, candidate)
-                if self._camp_foraging_areas_overlap(
-                    current,
-                    candidate,
+                if self._camp_foraging_areas_overlap(current, candidate):
+                    continue
+                # Exclude the previous camp site to prevent ping-pong oscillation.
+                if prev is not None and self._camp_foraging_areas_overlap(
+                    prev, candidate
                 ):
                     continue
                 depletion = self._local_camp_depletion(candidate)
@@ -1939,6 +1984,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.camp_age = 0
         self.num_camp_moves += 1
         self.macro_distance_traveled += travel_distance
+        self._prev_camp_pos = self.camp_pos
         self.camp_pos = new_camp
         self.band_camp_positions[0] = new_camp
         self._last_camp_relocated = True
