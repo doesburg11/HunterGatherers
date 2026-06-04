@@ -7,3 +7,5 @@ Requires-Dist: gymnasium>=1.0
 Requires-Dist: numpy>=2.0
 Provides-Extra: viewer
 Requires-Dist: pygame>=2.5; extra == "viewer"
+Provides-Extra: rllib
+Requires-Dist: ray[rllib]>=2.55.1; extra == "rllib"

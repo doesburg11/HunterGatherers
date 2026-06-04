@@ -8,13 +8,8 @@ checkpoint_dir = "checkpoints/"
 # Save a checkpoint every N iterations (0 = only at the end).
 checkpoint_freq = 10
 
-# Environment overrides for training.
-# Smaller band and shorter episodes = faster iterations.
-members_per_band = 8
-max_members_per_band = 16
+# Environment overrides for training (shorter episodes = faster iterations).
 max_steps = 1000
-birth_rate = 0.05
-birth_food_cost = 500.0
 
 [viewer]
 # Path to the RLlib checkpoint directory used by rllib_band_eval.py.
@@ -24,7 +19,7 @@ checkpoint_dir = "checkpoints/"
 cell_size = 18
 
 # Sidebar width before scale is applied.
-sidebar_width = 380
+sidebar_width = 440
 
 # UI scale multiplier for the whole pygame window.
 scale = 1.7
@@ -46,7 +41,7 @@ grid_size = 31
 obs_range = 11
 
 # Episode cutoff in steps.
-max_steps = 2000
+max_steps = 5000
 
 # Number of bands placed in the patch.
 num_bands = 1
@@ -78,8 +73,8 @@ drink_amount = 5.0
 # Use kcal/kg/km movement costs and body-mass-scaled internal energy stores.
 use_physical_energetics = true
 adult_body_mass_kg = 70.0
-newborn_body_mass_kg = 12.0
-initial_energy_per_kg = 30.0
+newborn_body_mass_kg = 14.0
+initial_energy_per_kg = 22.0
 max_energy_per_kg = 35.0
 newborn_energy_per_kg = 30.0
 cell_distance_km = 0.25
@@ -118,7 +113,7 @@ plant_carry_share = 0.5
 grass_energy_capacity = 1000.0
 
 # Grass energy restored each step on grassland cells, before seasonal scaling.
-grass_regrowth_base = 0.25
+grass_regrowth_base = 10.0
 
 # Maximum animal food energy in a rich animal cell, in kcal.
 animal_energy_capacity = 2500.0
@@ -181,18 +176,30 @@ camp_water_withdraw_threshold = 60.0
 camp_water_withdraw_amount = 5.0
 
 # Manhattan distance from camp where members can deposit and withdraw storage.
-camp_storage_radius = 3
+camp_storage_radius = 11
+
+# Maximum food energy that can be stored at camp, in kcal. 0 = no cap.
+camp_max_stored_food = 20000.0
+
+# Maximum water liters that can be stored at camp. 0 = no cap.
+camp_max_stored_water = 200.0
+
+# Fraction of stored food lost each step to spoilage. 0 = no decay.
+camp_food_decay_rate = 0.005
+
+# Width in cells of the ford cut through the river. 0 = no crossing.
+river_crossing_width = 3
 
 # Plant energy added each step to plant cells, before seasonal scaling.
 plant_regrowth_base = 0.08
 
 # Number of steps per season.
-season_length = 250
+season_length = 12
 
 # Manhattan radius around the camp used to measure nearby plant depletion.
 # Automatic relocation excludes candidate camps whose radius overlaps the old
 # camp radius.
-camp_depletion_radius = 5
+camp_depletion_radius = 11
 
 # Camp relocates automatically when nearby plant depletion reaches this value.
 camp_depletion_threshold = 0.75
@@ -204,18 +211,16 @@ camp_max_water_distance = 8
 # Optional energy cost paid by each living band member when camp relocates.
 camp_relocation_cost = 0.0
 
-# Band-level reproduction.
+# Band-level asexual reproduction.
 reproduction_enabled = true
-reproduction_adult_age = 250
-max_age = 1000
-mating_radius = 3
-gestation_steps = 250
-postpartum_cooldown_steps = 500
-conception_energy_threshold = 0.5
-birth_rate = 0.1
-birth_food_cost = 500.0
-birth_water_cost = 10.0
-newborn_energy = 60.0
+reproduction_adult_age = 750
+max_age = 3000
+mortality_onset_years = 25.0
+mortality_rate_per_year = 0.05
+reproduction_energy_threshold = 0.95
+reproduction_cooldown_steps = 50
+birth_rate = 0.01
+birth_food_cost = 2000.0
 newborn_hydration = 80.0
 
 # Reward shaping for trainable cooperative behavior.

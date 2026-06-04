@@ -140,6 +140,7 @@ class PygamePatchViewer:
             raise ValueError("Viewer scale must be greater than 0.")
         self.cell_size = self._scale(config.cell_size)
         self.sidebar_width = self._scale(config.sidebar_width)
+        self._hovered_member: tuple[int, int] | None = None
 
         width = env.grid_size * self.cell_size + self.sidebar_width
         height = env.grid_size * self.cell_size
@@ -194,6 +195,8 @@ class PygamePatchViewer:
                     self._step_random_policy()
                     self.last_auto_step_ms = now
 
+            mx, my = pygame.mouse.get_pos()
+            self._hovered_member = self._find_member_at_pixel(mx, my)
             self._draw()
             pygame.display.flip()
             self.clock.tick(self.config.fps)
@@ -224,6 +227,10 @@ class PygamePatchViewer:
             self._trigger_recamping_test()
             return
 
+        if event.key == pygame.K_SPACE:
+            self._step_random_policy()
+            return
+
         if event.key == pygame.K_UP:
             self._step(Action.MOVE_NORTH)
         elif event.key == pygame.K_DOWN:
@@ -232,8 +239,6 @@ class PygamePatchViewer:
             self._step(Action.MOVE_WEST)
         elif event.key == pygame.K_RIGHT:
             self._step(Action.MOVE_EAST)
-        elif event.key == pygame.K_SPACE:
-            self._step(Action.STAY)
 
     def _reset(self, seed: int) -> None:
         self.last_reward = 0.0
@@ -327,7 +332,7 @@ class PygamePatchViewer:
             abs(member_y - camp_y) + abs(member_x - camp_x)
             <= multi_env.config.camp_storage_radius
         ):
-            return Action.STAY
+            return self._random_policy_action()
         if abs(member_y - camp_y) >= abs(member_x - camp_x):
             return (
                 Action.MOVE_NORTH if member_y > camp_y else Action.MOVE_SOUTH
@@ -343,6 +348,9 @@ class PygamePatchViewer:
         self.screen.fill((24, 27, 24))
         self._draw_grid()
         self._draw_sidebar()
+        if self._hovered_member is not None:
+            mx, my = pygame.mouse.get_pos()
+            self._draw_tooltip(*self._hovered_member, mx, my)
 
     def _draw_grid(self) -> None:
         cell = self.cell_size
@@ -463,16 +471,20 @@ class PygamePatchViewer:
     def _draw_members(self) -> None:
         cell = self.cell_size
         for band_id, band_positions in enumerate(self.env.member_positions):
-            color = BAND_COLORS.get(int(band_id), (220, 220, 220))
+            adult_color = BAND_COLORS.get(int(band_id), (220, 220, 220))
             for member_id, (y, x) in enumerate(band_positions):
                 if not self.env.member_alive[band_id, member_id]:
                     continue
+                is_juvenile = (
+                    self.env.member_age[band_id, member_id]
+                    < self.env.config.reproduction_adult_age
+                )
                 center = (
                     int(x) * cell + cell // 2,
                     int(y) * cell + cell // 2,
                 )
                 radius = max(4, int(cell * 0.28))
-                fill = color
+                fill = (220, 220, 220) if is_juvenile else adult_color
                 pygame.draw.circle(
                     self.screen,
                     (32, 33, 35),
@@ -501,6 +513,82 @@ class PygamePatchViewer:
                 radius + self._scale(2),
             )
             pygame.draw.circle(self.screen, ANIMAL_COLOR, center, radius)
+
+    def _find_member_at_pixel(
+        self,
+        px: int,
+        py: int,
+    ) -> tuple[int, int] | None:
+        grid_w = self.env.grid_size * self.cell_size
+        if px < 0 or px >= grid_w or py < 0:
+            return None
+        gy = py // self.cell_size
+        gx = px // self.cell_size
+        if not (0 <= gy < self.env.grid_size and 0 <= gx < self.env.grid_size):
+            return None
+        for band_id in range(self.env.config.num_bands):
+            for member_id in range(self.env.member_capacity_per_band):
+                if not self.env.member_alive[band_id, member_id]:
+                    continue
+                my, mx = self.env.member_positions[band_id, member_id]
+                if int(my) == gy and int(mx) == gx:
+                    return band_id, member_id
+        return None
+
+    def _draw_tooltip(
+        self,
+        band_id: int,
+        member_id: int,
+        px: int,
+        py: int,
+    ) -> None:
+        env = self.env
+        identity = int(env.member_ids[band_id, member_id])
+        age_steps = int(env.member_age[band_id, member_id])
+        age_years = age_steps * (
+            15.0 / max(1, env.config.reproduction_adult_age)
+        )
+        energy = float(env.member_energy[band_id, member_id])
+        max_energy = env._member_max_energy(band_id, member_id)
+        hydration = float(env.member_hydration[band_id, member_id])
+        carried_food = float(env.member_carried_food[band_id, member_id])
+        carried_water = float(env.member_carried_water[band_id, member_id])
+        cooldown = int(env.member_reproduction_cooldown[band_id, member_id])
+        adult_age = env.config.reproduction_adult_age
+        stage = "Adult" if age_steps >= adult_age else "Juvenile"
+        lines = [
+            f"#{identity}  Band {band_id}",
+            f"Age:      {age_years:.1f} yrs ({stage})",
+            f"Energy:   {energy:.0f} / {max_energy:.0f}"
+            f" ({100 * energy / max(1, max_energy):.0f}%)",
+            f"Water:    {hydration:.0f} / "
+            f"{env.config.max_hydration:.0f}",
+            f"Carried:  food {carried_food:.0f}"
+            f"  water {carried_water:.1f}",
+            f"Repr. cooldown: {cooldown}",
+        ]
+        pad = self._scale(8)
+        line_h = self._scale(18)
+        w = max(
+            self.energy_font.size(ln)[0] for ln in lines
+        ) + pad * 2
+        h = len(lines) * line_h + pad * 2
+        screen_w, screen_h = self.screen.get_size()
+        tx = min(px + self._scale(14), screen_w - w - self._scale(4))
+        ty = min(py + self._scale(14), screen_h - h - self._scale(4))
+        bg = pygame.Surface((w, h), pygame.SRCALPHA)
+        bg.fill((18, 20, 18, 210))
+        self.screen.blit(bg, (tx, ty))
+        pygame.draw.rect(
+            self.screen,
+            (90, 100, 90),
+            pygame.Rect(tx, ty, w, h),
+            self._scale(1),
+        )
+        for i, line in enumerate(lines):
+            color = (238, 237, 225) if i > 0 else (180, 210, 160)
+            surf = self.energy_font.render(line, True, color)
+            self.screen.blit(surf, (tx + pad, ty + pad + i * line_h))
 
     def _draw_sidebar(self) -> None:
         left = self.env.grid_size * self.cell_size
@@ -546,13 +634,21 @@ class PygamePatchViewer:
         y = self._draw_metric_row("Date", self._format_date(), x, y)
         season_name = Season(self.env.season).name.capitalize()
         y = self._draw_metric_row("Season", season_name, x, y)
+        y = self._draw_metric_row("Step", str(self.env.step_count), x, y)
         y += self._scale(6)
         y = self._draw_symbol_entry(
-            "Band 0 member",
+            "Adult",
             x,
             y,
             "circle",
             BAND_COLORS[0],
+        )
+        y = self._draw_symbol_entry(
+            "Juvenile",
+            x,
+            y,
+            "circle",
+            (220, 220, 220),
         )
         y = self._draw_symbol_entry("Camp", x, y, "triangle", CAMP_COLOR)
         y = self._draw_symbol_entry("Animals", x, y, "circle", ANIMAL_COLOR)
@@ -566,6 +662,12 @@ class PygamePatchViewer:
                 x,
                 y,
             )
+        y += self._scale(8)
+        y = self._draw_section_title("Controls", x, y)
+        y = self._draw_metric_row("Space", "Step once", x, y)
+        y = self._draw_metric_row("A", "Toggle autoplay", x, y)
+        y = self._draw_metric_row("N", "New episode", x, y)
+        y = self._draw_metric_row("Arrows", "Move agent", x, y)
         return y
 
     # (start_month, start_day, calendar_days_in_season)
@@ -586,7 +688,7 @@ class PygamePatchViewer:
         while day > self._MONTH_DAYS[month]:
             day -= self._MONTH_DAYS[month]
             month = month % 12 + 1
-        # Winter crosses January 1: flip the calendar year when month rolls past December.
+        # Winter crosses January 1: flip year when month rolls past December.
         if season_idx == 3 and month < 12:
             year += 1
         return f"{year:04d}-{month:02d}-{day:02d}"
@@ -595,31 +697,31 @@ class PygamePatchViewer:
         y = self._draw_section_title("Camp", x, y)
         y = self._draw_metric_row(
             "Potential energy",
-            f"{self.env.camp_potential_energy():.1f}",
+            f"{self.env.camp_potential_energy():.0f} kcal",
             x,
             y,
         )
         y = self._draw_metric_row(
             "Camp food",
-            f"{float(self.env.camp_stored_food[0]):.1f}",
+            f"{float(self.env.camp_stored_food[0]):.0f} kcal",
             x,
             y,
         )
         y = self._draw_metric_row(
             "Camp water",
-            f"{float(self.env.camp_stored_water[0]):.1f}",
+            f"{float(self.env.camp_stored_water[0]):.0f} L",
             x,
             y,
         )
         y = self._draw_metric_row(
             "Carried food",
-            f"{float(np.sum(self.env.member_carried_food[0])):.1f}",
+            f"{float(np.sum(self.env.member_carried_food[0])):.0f} kcal",
             x,
             y,
         )
         y = self._draw_metric_row(
             "Carried water",
-            f"{float(np.sum(self.env.member_carried_water[0])):.1f}",
+            f"{float(np.sum(self.env.member_carried_water[0])):.0f} L",
             x,
             y,
         )
@@ -672,14 +774,25 @@ class PygamePatchViewer:
         )
         chart_rect = pygame.Rect(x, y, chart_width, chart_height)
         id_width = self._scale(36)
+        num_width = self._scale(36)
         gap = self._scale(8)
         metric_width = max(
             self._scale(40),
             (chart_rect.width - id_width - gap) // 2,
         )
+        bar_width = metric_width - num_width - self._scale(4)
         energy_x = chart_rect.x + id_width
+        energy_bar_x = energy_x + num_width
         water_x = energy_x + metric_width + gap
-        energy_max = max(1.0, float(self.env.config.max_energy))
+        water_bar_x = water_x + num_width
+        if self.env.config.use_physical_energetics:
+            energy_max = max(
+                1.0,
+                self.env.config.adult_body_mass_kg
+                * self.env.config.max_energy_per_kg,
+            )
+        else:
+            energy_max = max(1.0, float(self.env.config.max_energy))
         water_max = max(1.0, float(self.env.config.max_hydration))
         bar_height = max(self._scale(6), row_height - self._scale(8))
 
@@ -690,8 +803,8 @@ class PygamePatchViewer:
             chart_rect,
             self._scale(1),
         )
-        self._draw_chart_header("Energy", energy_x, y, metric_width)
-        self._draw_chart_header("Water", water_x, y, metric_width)
+        self._draw_chart_header("Energy (kcal)", energy_x, y, metric_width)
+        self._draw_chart_header("Water (L)", water_x, y, metric_width)
 
         for member_id in range(member_count):
             row_y = (
@@ -721,26 +834,41 @@ class PygamePatchViewer:
                 energy_color = (85, 88, 82)
                 water_color = (85, 88, 82)
 
+            energy_val = max(
+                0.0, float(self.env.member_energy[band_id, member_id])
+            )
+            water_val = max(
+                0.0, float(self.env.member_hydration[band_id, member_id])
+            )
+            num_color = (238, 237, 225) if alive else (85, 88, 82)
+            for num_x, val in (
+                (energy_x, energy_val), (water_x, water_val)
+            ):
+                ns = self.energy_font.render(f"{val:.0f}", True, num_color)
+                nr = ns.get_rect(
+                    midright=(
+                        num_x + num_width - self._scale(2),
+                        row_y + row_height // 2,
+                    )
+                )
+                self.screen.blit(ns, nr)
             self._draw_member_resource_bar(
-                energy_x,
+                energy_bar_x,
                 row_y,
-                metric_width,
+                bar_width,
                 bar_height,
                 row_height,
-                max(0.0, float(self.env.member_energy[band_id, member_id])),
+                energy_val,
                 energy_max,
                 energy_color,
             )
             self._draw_member_resource_bar(
-                water_x,
+                water_bar_x,
                 row_y,
-                metric_width,
+                bar_width,
                 bar_height,
                 row_height,
-                max(
-                    0.0,
-                    float(self.env.member_hydration[band_id, member_id]),
-                ),
+                water_val,
                 water_max,
                 water_color,
             )
@@ -799,19 +927,6 @@ class PygamePatchViewer:
             bar_bg_rect,
             self._scale(1),
         )
-
-        value_surface = self.energy_font.render(
-            f"{value:.0f}",
-            True,
-            (238, 237, 225),
-        )
-        value_rect = value_surface.get_rect(
-            midright=(
-                bar_bg_rect.right - self._scale(4),
-                bar_bg_rect.centery,
-            )
-        )
-        self.screen.blit(value_surface, value_rect)
 
     def _draw_section_title(self, text: str, x: int, y: int) -> int:
         return self._draw_text(

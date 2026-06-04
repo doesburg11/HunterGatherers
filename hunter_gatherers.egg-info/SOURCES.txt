@@ -8,4 +8,7 @@ hunter_gatherers.egg-info/requires.txt
 hunter_gatherers.egg-info/top_level.txt
 hunter_gatherers/envs/__init__.py
 hunter_gatherers/envs/patch_env.py
+hunter_gatherers/envs/patch_env_config.toml
+hunter_gatherers/envs/rllib_env.py
 tests/test_patch_env.py
+tests/test_rllib_env.py

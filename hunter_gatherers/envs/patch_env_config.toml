@@ -44,10 +44,10 @@ use_physical_energetics = true
 adult_body_mass_kg = 70.0
 
 # Body mass assigned to newborn members when physical energetics is on.
-newborn_body_mass_kg = 12.0
+newborn_body_mass_kg = 14.0
 
 # Starting internal energy reserve per kg body mass, in kcal/kg.
-initial_energy_per_kg = 30.0
+initial_energy_per_kg = 22.0
 
 # Maximum internal energy reserve per kg body mass, in kcal/kg.
 max_energy_per_kg = 35.0
@@ -98,7 +98,7 @@ plant_carry_share = 1.0
 grass_energy_capacity = 1000.0
 
 # Grass energy restored each step on grassland cells, before seasonal scaling.
-grass_regrowth_base = 0.25
+grass_regrowth_base = 10.0
 
 # Maximum animal food energy in a rich animal cell, in kcal.
 animal_energy_capacity = 2500.0
@@ -163,19 +163,33 @@ camp_water_withdraw_amount = 5.0
 # Manhattan distance from camp where members can deposit and withdraw storage.
 camp_storage_radius = 3
 
+# Maximum food energy that can be stored at camp, in kcal. 0 = no cap.
+camp_max_stored_food = 60000.0
+
+# Maximum water liters that can be stored at camp. 0 = no cap.
+camp_max_stored_water = 200.0
+
+# Fraction of stored food lost each step to spoilage. 0 = no decay.
+camp_food_decay_rate = 0.005
+
+# Width in cells of the ford cut through the river. 0 = no crossing.
+river_crossing_width = 3
+
 # Plant energy added each step to plant cells, before seasonal scaling.
 plant_regrowth_base = 0.08
 
 # Number of steps per season. Seasons cycle spring, summer, autumn, winter.
-season_length = 250
+season_length = 12
 
 # Manhattan radius around the camp used to measure nearby plant depletion.
 # Automatic relocation excludes candidate camps whose radius overlaps the old
 # camp radius.
-camp_depletion_radius = 5
+camp_depletion_radius = 11
 
 # Camp relocates automatically when nearby plant depletion reaches this value.
 camp_depletion_threshold = 0.75
+# At or above this depletion the camp moves immediately, ignoring stored food/water.
+camp_emergency_depletion_threshold = 0.90
 
 # Maximum Manhattan distance from camp to the nearest water cell. Camp also
 # relocates when this is exceeded. 0 = no water-proximity constraint.
@@ -189,30 +203,30 @@ camp_relocation_cost = 0.0
 # drops to within migration_cost + alive_members × withdraw_rate × this many steps,
 # AND stored water drops to within alive_members × thirst_per_step × this many steps.
 # 0 = move as soon as the environment is depleted (old behaviour).
-camp_store_departure_steps = 10
+camp_store_departure_steps = 1
 
-# Band-level reproduction. A birth can occur when a band has at least one
-# living adult female and one living adult male, enough camp food/water, and an
-# inactive member slot.
+# Band-level asexual reproduction. A member splits its energy 1:1 with a child
+# when its energy exceeds the threshold and it has no reproduction cooldown.
 reproduction_enabled = true
-reproduction_adult_age = 250
+reproduction_adult_age = 750
 # Maximum age a member can reach before dying of old age.
-# Default: 4 × reproduction_adult_age so initial adults (age 250) survive ~750
-# more steps before dying naturally (roughly 1.5 training episodes at 500 steps).
-max_age = 1000
-# Proximity-based mating: male and female must be within this Manhattan distance.
-# 0 = any alive pair suffices (old behaviour).
-mating_radius = 3
-# Steps from conception to birth (~9 months at 1 step/day → 270 steps).
-gestation_steps = 250
-# Steps a female cannot conceive again after giving birth (~2 years at 1 step/day).
-postpartum_cooldown_steps = 500
-# Fraction of max energy both parents need to be above for conception.
-conception_energy_threshold = 0.5
-birth_rate = 0.002
-birth_food_cost = 2500.0
-birth_water_cost = 10.0
-newborn_energy = 60.0
+# 60 years x 50 steps/year = 3000 steps
+max_age = 3000
+# Age in years at which probabilistic old-age mortality begins.
+mortality_onset_years = 25.0
+# Yearly mortality rate increase per year beyond onset (0.05 = +5%/yr).
+mortality_rate_per_year = 0.05
+# Fraction of max energy a member needs to trigger asexual reproduction.
+reproduction_energy_threshold = 0.95
+# Steps before a member can reproduce again after giving birth.
+# ~3 years x 50 steps/year = 150 steps
+reproduction_cooldown_steps = 50
+# Maximum number of juveniles per adult before random juvenile mortality kicks in.
+max_juveniles_per_adult = 2.0
+# Probability of reproducing per step when above the energy threshold.
+birth_rate = 0.01
+# Minimum camp stored food required for a birth, in kcal (consumed on birth).
+birth_food_cost = 2000.0
 newborn_hydration = 80.0
 
 # Reward shaping for trainable cooperative behavior.

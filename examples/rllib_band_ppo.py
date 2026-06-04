@@ -64,8 +64,6 @@ def main() -> None:
             "members_per_band",
             "max_members_per_band",
             "max_steps",
-            "birth_rate",
-            "birth_food_cost",
         )
         if k in training_cfg
     }
