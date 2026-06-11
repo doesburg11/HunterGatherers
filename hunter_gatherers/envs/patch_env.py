@@ -224,6 +224,14 @@ class PatchEnvConfig:
         "camp_water_withdraw_amount",
         10.0,
     )
+    carried_food_consume_threshold: float = _default_config_value(
+        "carried_food_consume_threshold",
+        80.0,
+    )
+    carried_water_consume_threshold: float = _default_config_value(
+        "carried_water_consume_threshold",
+        80.0,
+    )
     camp_storage_radius: int = _default_config_value(
         "camp_storage_radius",
         1,
@@ -532,6 +540,14 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             )
         if self.config.camp_water_withdraw_amount < 0.0:
             raise ValueError("camp_water_withdraw_amount must be non-negative")
+        if self.config.carried_food_consume_threshold < 0.0:
+            raise ValueError(
+                "carried_food_consume_threshold must be non-negative"
+            )
+        if self.config.carried_water_consume_threshold < 0.0:
+            raise ValueError(
+                "carried_water_consume_threshold must be non-negative"
+            )
         if self.config.camp_storage_radius < 0:
             raise ValueError("camp_storage_radius must be non-negative")
         if self.config.camp_max_stored_food < 0.0:
@@ -2445,6 +2461,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             for member_id in range(self.member_capacity_per_band):
                 if not self.member_alive[band_id, member_id]:
                     continue
+                self._consume_carried_resources(band_id, member_id)
+
+            for member_id in range(self.member_capacity_per_band):
+                if not self.member_alive[band_id, member_id]:
+                    continue
                 if not self._member_can_access_band_storage(
                     band_id, member_id
                 ):
@@ -2486,6 +2507,41 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             self._record_water_deposited(
                 band_id, member_id, deposited_water
             )
+
+    def _consume_carried_resources(
+        self,
+        band_id: int,
+        member_id: int,
+    ) -> None:
+        carried_food = float(self.member_carried_food[band_id, member_id])
+        if carried_food > 0.0:
+            energy_need = max(
+                0.0,
+                min(
+                    self.config.carried_food_consume_threshold,
+                    self._member_max_energy(band_id, member_id),
+                )
+                - self._member_energy(band_id, member_id),
+            )
+            eaten = min(energy_need, carried_food)
+            if eaten > 0.0:
+                self.member_carried_food[band_id, member_id] -= eaten
+                self._add_member_energy(band_id, member_id, eaten)
+
+        carried_water = float(self.member_carried_water[band_id, member_id])
+        if carried_water > 0.0:
+            hydration_need = max(
+                0.0,
+                min(
+                    self.config.carried_water_consume_threshold,
+                    self._member_max_hydration(band_id, member_id),
+                )
+                - self._member_hydration(band_id, member_id),
+            )
+            drunk = min(hydration_need, carried_water)
+            if drunk > 0.0:
+                self.member_carried_water[band_id, member_id] -= drunk
+                self._add_member_hydration(band_id, member_id, drunk)
 
     def _withdraw_member_resources_from_camp(
         self,

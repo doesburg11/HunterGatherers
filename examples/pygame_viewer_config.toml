@@ -1,6 +1,6 @@
 [training]
 # Number of PPO training iterations to run.
-iterations = 200
+iterations = 1000
 
 # Directory to save checkpoints during and after training.
 checkpoint_dir = "checkpoints/"
