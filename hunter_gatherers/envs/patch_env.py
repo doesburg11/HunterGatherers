@@ -3103,9 +3103,14 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
         # immediately filled by a newborn (same slot, new member_id).
         # After _refresh_agent_ids the original agent_id is stale.
         band = self.controlled_band_id
+        # Restrict to adult slots only — juveniles never receive observations
+        # so including them in rewards/terminations/truncations causes RLlib's
+        # episode tracker to accumulate stale state that leads to KeyErrors at
+        # training iteration boundaries (cut episodes).
         agent_slots: list[tuple[str, int]] = [
             (self._agent_id(band, slot), slot)
             for slot in active_slots
+            if self.member_age[band, slot] >= self.config.reproduction_adult_age
         ]
         pre_sim_identity: dict[int, int] = {
             slot: int(self.member_ids[band, slot])
