@@ -485,6 +485,93 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             info["mean_animal_energy"], np.mean(env.animal_energy)
         )
 
+    def test_division_of_labor_female_gathers_not_hunts(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                initial_energy_per_kg=20.0,
+                plant_energy_capacity=8.0,
+                plant_eat_amount=8.0,
+                plant_regrowth_base=0.0,
+                animal_energy_capacity=2500.0,
+                initial_animals=0,
+                max_animals=1,
+                animal_move_cost=0.0,
+                animal_eat_amount=0.0,
+                animal_hunt_amount=800.0,
+                camp_storage_radius=0,
+                reproduction_adult_age=0,
+                division_of_labor_enabled=True,
+                global_seed=200,
+            )
+        )
+        env.reset(seed=201)
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.plant_capacity[:, :] = 0.0
+        env.plant_energy[:, :] = 0.0
+        env._set_member_position(0, 0, (3, 3))
+        target = (3, 4)
+        env.plant_capacity[target] = 8.0
+        env.plant_energy[target] = 8.0
+        env.animal_alive[0] = True
+        env.animal_positions[0] = target
+        env.animal_individual_energy[0] = 1200.0
+        env._sync_animal_energy_layer()
+
+        env.step(Action.MOVE_EAST)
+
+        self.assertAlmostEqual(env.plant_energy[target], 0.0)
+        self.assertAlmostEqual(env.animal_individual_energy[0], 1200.0)
+        self.assertAlmostEqual(env.member_last_animal_food_gained[0, 0], 0.0)
+        self.assertEqual(env.plant_eating_events, 1)
+
+    def test_division_of_labor_male_hunts_not_gathers(self):
+        env = HunterGathererPatchEnv(
+            PatchEnvConfig(
+                grid_size=7,
+                obs_range=5,
+                members_per_band=1,
+                initial_energy_per_kg=20.0,
+                plant_energy_capacity=8.0,
+                plant_eat_amount=8.0,
+                plant_regrowth_base=0.0,
+                animal_energy_capacity=2500.0,
+                initial_animals=0,
+                max_animals=1,
+                animal_move_cost=0.0,
+                animal_eat_amount=0.0,
+                animal_hunt_amount=800.0,
+                camp_storage_radius=0,
+                reproduction_adult_age=0,
+                division_of_labor_enabled=True,
+                global_seed=202,
+            )
+        )
+        env.reset(seed=203)
+        env.member_sex[0, 0] = int(MemberSex.MALE)
+        env.terrain[:, :] = Terrain.GRASSLAND
+        env.water[:, :] = 0.0
+        env.plant_capacity[:, :] = 0.0
+        env.plant_energy[:, :] = 0.0
+        env._set_member_position(0, 0, (3, 3))
+        target = (3, 4)
+        env.plant_capacity[target] = 8.0
+        env.plant_energy[target] = 8.0
+        env.animal_alive[0] = True
+        env.animal_positions[0] = target
+        env.animal_individual_energy[0] = 1200.0
+        env._sync_animal_energy_layer()
+
+        env.step(Action.MOVE_EAST)
+
+        self.assertAlmostEqual(env.plant_energy[target], 8.0)
+        self.assertAlmostEqual(env.animal_individual_energy[0], 400.0)
+        self.assertAlmostEqual(env.member_last_animal_food_gained[0, 0], 800.0)
+        self.assertEqual(env.plant_eating_events, 0)
+
     def test_animals_move_eat_grass_and_reproduce(self):
         env = HunterGathererPatchEnv(
             PatchEnvConfig(

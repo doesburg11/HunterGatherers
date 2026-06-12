@@ -205,6 +205,11 @@ camp_relocation_cost = 0.0
 # 0 = move as soon as the environment is depleted (old behaviour).
 camp_store_departure_steps = 1
 
+# Hard role split by member sex when enabled:
+# FEMALE members gather plants but do not hunt animals.
+# MALE members hunt animals but do not gather plants.
+division_of_labor_enabled = false
+
 # Band-level asexual reproduction. A member splits its energy 1:1 with a child
 # when its energy exceeds the threshold and it has no reproduction cooldown.
 reproduction_enabled = true

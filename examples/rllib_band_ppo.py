@@ -81,7 +81,15 @@ def main() -> None:
                 "shared_policy"
             ),
         )
-        .env_runners(num_env_runners=0)
+        .env_runners(
+            num_env_runners=0,
+            # Avoid RLlib cutting live multi-agent episodes at train-batch
+            # boundaries. The new API stack may cache actions for terminal
+            # agents just before a cut, then drop their zero-length
+            # continuation episodes, which can surface as KeyError during
+            # module-to-env unbatching.
+            batch_mode="complete_episodes",
+        )
         .training(
             train_batch_size=4000,  # ~4 episodes/update → stable gradients
             num_epochs=10,          # fewer passes/batch → less overfitting
@@ -90,7 +98,7 @@ def main() -> None:
         )
     )
 
-    algo = config.build()
+    algo = config.build_algo()
     try:
         for iteration in range(args.iterations):
             result = algo.train()

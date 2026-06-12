@@ -28,6 +28,11 @@ class Season(IntEnum):
     WINTER = 3
 
 
+class MemberSex(IntEnum):
+    FEMALE = 0
+    MALE = 1
+
+
 @dataclass(frozen=True)
 class MemberState:
     agent_id: str
@@ -36,6 +41,7 @@ class MemberState:
     member_id: int
     alive: bool
     age: int
+    sex: MemberSex
     energy: float
     hydration: float
     body_mass_kg: float
@@ -280,6 +286,10 @@ class PatchEnvConfig:
     camp_max_water_distance: int = _default_config_value(
         "camp_max_water_distance",
         0,
+    )
+    division_of_labor_enabled: bool = _default_config_value(
+        "division_of_labor_enabled",
+        False,
     )
     reproduction_enabled: bool = _default_config_value(
         "reproduction_enabled",
@@ -603,6 +613,10 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             (self.config.num_bands, self.member_capacity_per_band),
             dtype=np.int32,
         )
+        self.member_sex: np.ndarray = np.empty(
+            (self.config.num_bands, self.member_capacity_per_band),
+            dtype=np.int8,
+        )
         self.member_energy: np.ndarray = np.empty(
             (self.config.num_bands, self.member_capacity_per_band),
             dtype=np.float32,
@@ -793,6 +807,16 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             :,
             : self.config.members_per_band,
         ] = self.config.reproduction_adult_age
+        self.member_sex = np.array(
+            [
+                [
+                    (band_id + slot) % 2
+                    for slot in range(self.member_capacity_per_band)
+                ]
+                for band_id in range(self.config.num_bands)
+            ],
+            dtype=np.int8,
+        )
         self.member_energy = np.full(
             (self.config.num_bands, self.member_capacity_per_band),
             0.0,
@@ -1434,6 +1458,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             member_id=int(self.member_ids[band_id, member_id]),
             alive=bool(self.member_alive[band_id, member_id]),
             age=int(self.member_age[band_id, member_id]),
+            sex=MemberSex(int(self.member_sex[band_id, member_id])),
             energy=self._member_energy(band_id, member_id),
             hydration=self._member_hydration(band_id, member_id),
             body_mass_kg=float(self.member_body_mass_kg[band_id, member_id]),
@@ -1794,7 +1819,26 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self._consume_animal_energy(band_id, member_id)
         self._consume_water(band_id, member_id)
 
+    def _member_sex(self, band_id: int, member_id: int) -> MemberSex:
+        return MemberSex(int(self.member_sex[band_id, member_id]))
+
+    def _member_can_gather_plants(
+        self, band_id: int, member_id: int
+    ) -> bool:
+        if not self.config.division_of_labor_enabled:
+            return True
+        return self._member_sex(band_id, member_id) == MemberSex.FEMALE
+
+    def _member_can_hunt_animals(
+        self, band_id: int, member_id: int
+    ) -> bool:
+        if not self.config.division_of_labor_enabled:
+            return True
+        return self._member_sex(band_id, member_id) == MemberSex.MALE
+
     def _consume_plant_energy(self, band_id: int, member_id: int) -> None:
+        if not self._member_can_gather_plants(band_id, member_id):
+            return
         y, x = self._member_position(band_id, member_id)
         available_energy = float(self.plant_energy[y, x])
         body_need = max(
@@ -1828,6 +1872,8 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.plant_eating_events += int(harvested_energy > 0.0)
 
     def _consume_animal_energy(self, band_id: int, member_id: int) -> None:
+        if not self._member_can_hunt_animals(band_id, member_id):
+            return
         y, x = self._member_position(band_id, member_id)
         animal_ids = [
             int(animal_id)
