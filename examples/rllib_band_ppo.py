@@ -14,6 +14,20 @@ def load_training_config(path: Path = CONFIG_PATH) -> dict:
     return raw.get("training", {})
 
 
+def _sex_policy_for_agent_id(agent_id: str) -> str:
+    # Agent ids are formatted as: band_<band_id>_member_<member_identity>
+    parts = agent_id.split("_")
+    if len(parts) != 4:
+        return "female_policy"
+    try:
+        band_id = int(parts[1])
+        member_identity = int(parts[3])
+    except ValueError:
+        return "female_policy"
+    sex = (band_id + member_identity) % 2
+    return "female_policy" if sex == 0 else "male_policy"
+
+
 def main() -> None:
     training_cfg = load_training_config()
 
@@ -76,9 +90,9 @@ def main() -> None:
             env_config={"patch_env_config": env_overrides},
         )
         .multi_agent(
-            policies={"shared_policy"},
+            policies={"female_policy", "male_policy"},
             policy_mapping_fn=lambda agent_id, episode, **kwargs: (
-                "shared_policy"
+                _sex_policy_for_agent_id(agent_id)
             ),
         )
         .env_runners(

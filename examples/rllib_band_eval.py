@@ -74,30 +74,61 @@ def main() -> None:
     checkpoint_dir = args.checkpoint or viewer_config.checkpoint_dir
     checkpoint_path = str(Path(checkpoint_dir).resolve())
     algo = Algorithm.from_checkpoint(checkpoint_path)
-    rl_module = algo.get_module("shared_policy")
-    if rl_module is None:
+    female_module = algo.get_module("female_policy")
+    male_module = algo.get_module("male_policy")
+    if female_module is None or male_module is None:
         raise SystemExit(
-            "No module named 'shared_policy' found in checkpoint. "
+            "Expected 'female_policy' and 'male_policy' in checkpoint. "
             "Make sure the checkpoint was produced by rllib_band_ppo.py."
         )
+
+    def _sex_policy_for_agent_id(agent_id: str) -> str:
+        parts = agent_id.split("_")
+        if len(parts) != 4:
+            return "female_policy"
+        try:
+            band_id = int(parts[1])
+            member_identity = int(parts[3])
+        except ValueError:
+            return "female_policy"
+        sex = (band_id + member_identity) % 2
+        return "female_policy" if sex == 0 else "male_policy"
 
     def policy_fn(
         obs_dict: dict[str, np.ndarray],
     ) -> dict[str, int]:
         if not obs_dict:
             return {}
-        agent_ids = list(obs_dict.keys())
-        obs_batch = np.stack(
-            [obs_dict[aid].reshape(-1).astype(np.float32) for aid in agent_ids]
-        )
-        obs_tensor = torch.tensor(obs_batch)
-        with torch.no_grad():
-            result = rl_module.forward_inference({Columns.OBS: obs_tensor})
-        # forward_inference returns action_dist_inputs (logits), not sampled
-        # actions. Argmax → greedy / deterministic inference.
-        logits = result[Columns.ACTION_DIST_INPUTS].numpy()
-        actions = np.argmax(logits, axis=-1)
-        return {aid: int(actions[i]) for i, aid in enumerate(agent_ids)}
+        actions_by_agent: dict[str, int] = {}
+        for policy_name, module in (
+            ("female_policy", female_module),
+            ("male_policy", male_module),
+        ):
+            agent_ids = [
+                aid
+                for aid in obs_dict.keys()
+                if _sex_policy_for_agent_id(aid) == policy_name
+            ]
+            if not agent_ids:
+                continue
+            obs_batch = np.stack(
+                [
+                    obs_dict[aid].reshape(-1).astype(np.float32)
+                    for aid in agent_ids
+                ]
+            )
+            obs_tensor = torch.tensor(obs_batch)
+            with torch.no_grad():
+                result = module.forward_inference({Columns.OBS: obs_tensor})
+            logits = result[Columns.ACTION_DIST_INPUTS].numpy()
+            policy_actions = np.argmax(logits, axis=-1)
+            actions_by_agent.update(
+                {
+                    aid: int(policy_actions[i])
+                    for i, aid in enumerate(agent_ids)
+                }
+            )
+        return actions_by_agent
 
     env = BandMemberPatchEnv(load_env_config())
     viewer = PygamePatchViewer(

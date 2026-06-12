@@ -328,6 +328,14 @@ class PatchEnvConfig:
         "newborn_hydration",
         80.0,
     )
+    sexual_reproduction_enabled: bool = _default_config_value(
+        "sexual_reproduction_enabled",
+        False,
+    )
+    male_proximity_distance: int = _default_config_value(
+        "male_proximity_distance",
+        5,
+    )
     plant_food_reward: float = _default_config_value(
         "plant_food_reward",
         0.05,
@@ -810,7 +818,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.member_sex = np.array(
             [
                 [
-                    (band_id + slot) % 2
+                    (
+                        band_id
+                        + max(int(self.member_ids[band_id, slot]), 0)
+                    )
+                    % 2
                     for slot in range(self.member_capacity_per_band)
                 ]
                 for band_id in range(self.config.num_bands)
@@ -995,8 +1007,14 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             self._maybe_reproduce_band(band_id)
 
     def _maybe_reproduce_band(self, band_id: int) -> None:
-        """Asexual reproduction: a member above the energy threshold splits its
-        energy 1:1 with a new child placed adjacent to the parent."""
+        """Reproduction: a member above the energy threshold reproduces.
+        
+        When sexual_reproduction_enabled=False: Asexual reproduction where any
+        member (male or female) can reproduce, splitting energy 1:1 with child.
+        
+        When sexual_reproduction_enabled=True: Sexual reproduction where only
+        females reproduce, and only if a male exists within male_proximity_distance.
+        """
         for member_id in range(self.member_capacity_per_band):
             if not self.member_alive[band_id, member_id]:
                 continue
@@ -1005,6 +1023,15 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 < self.config.reproduction_adult_age
             ):
                 continue
+            
+            # Sexual reproduction: only females can reproduce
+            if self.config.sexual_reproduction_enabled:
+                if self._member_sex(band_id, member_id) != MemberSex.FEMALE:
+                    continue
+                # Female must have a nearby male to reproduce
+                if not self._has_nearby_male(band_id, member_id):
+                    continue
+            
             if self.member_reproduction_cooldown[band_id, member_id] > 0:
                 continue
             max_energy = self._member_max_energy(band_id, member_id)
@@ -1079,6 +1106,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
     ) -> None:
         self.member_ids[band_id, slot] = self.next_member_ids[band_id]
         self.next_member_ids[band_id] += 1
+        self.member_sex[band_id, slot] = (
+            band_id + int(self.member_ids[band_id, slot])
+        ) % 2
         self.member_alive[band_id, slot] = True
         self.member_age[band_id, slot] = 0
         self.member_body_mass_kg[band_id, slot] = (
@@ -1822,19 +1852,38 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
     def _member_sex(self, band_id: int, member_id: int) -> MemberSex:
         return MemberSex(int(self.member_sex[band_id, member_id]))
 
+    def _has_nearby_male(self, band_id: int, member_id: int) -> bool:
+        """Check if there's an alive male within male_proximity_distance."""
+        if not self.config.sexual_reproduction_enabled:
+            return True  # Always allow if sexual reproduction disabled
+        
+        member_y, member_x = self._member_position(band_id, member_id)
+        
+        for other_id in range(self.member_capacity_per_band):
+            if not self.member_alive[band_id, other_id]:
+                continue
+            if self._member_sex(band_id, other_id) != MemberSex.MALE:
+                continue
+            
+            other_y, other_x = self._member_position(band_id, other_id)
+            manhattan_dist = abs(member_y - other_y) + abs(member_x - other_x)
+            
+            if manhattan_dist <= self.config.male_proximity_distance:
+                return True
+        
+        return False
+
     def _member_can_gather_plants(
         self, band_id: int, member_id: int
     ) -> bool:
-        if not self.config.division_of_labor_enabled:
-            return True
-        return self._member_sex(band_id, member_id) == MemberSex.FEMALE
+        # Hard sex gating is disabled to allow role specialization to emerge.
+        return True
 
     def _member_can_hunt_animals(
         self, band_id: int, member_id: int
     ) -> bool:
-        if not self.config.division_of_labor_enabled:
-            return True
-        return self._member_sex(band_id, member_id) == MemberSex.MALE
+        # Hard sex gating is disabled to allow role specialization to emerge.
+        return True
 
     def _consume_plant_energy(self, band_id: int, member_id: int) -> None:
         if not self._member_can_gather_plants(band_id, member_id):

@@ -205,13 +205,12 @@ camp_relocation_cost = 0.0
 # 0 = move as soon as the environment is depleted (old behaviour).
 camp_store_departure_steps = 1
 
-# Hard role split by member sex when enabled:
-# FEMALE members gather plants but do not hunt animals.
-# MALE members hunt animals but do not gather plants.
+# Legacy flag retained for backwards compatibility.
+# Hard sex-based labor gates are disabled so role specialization can emerge.
 division_of_labor_enabled = false
 
-# Band-level asexual reproduction. A member splits its energy 1:1 with a child
-# when its energy exceeds the threshold and it has no reproduction cooldown.
+# Band-level reproduction. In asexual mode, any adult can reproduce.
+# In sexual mode, only females can reproduce and require a nearby male.
 reproduction_enabled = true
 reproduction_adult_age = 750
 # Maximum age a member can reach before dying of old age.
@@ -233,6 +232,13 @@ birth_rate = 0.01
 # Minimum camp stored food required for a birth, in kcal (consumed on birth).
 birth_food_cost = 2000.0
 newborn_hydration = 80.0
+
+# Sexual reproduction mode: females can only reproduce if a male exists nearby.
+# When enabled, only females reproduce; males do not.
+# When disabled, both sexes reproduce asexually (existing behavior).
+sexual_reproduction_enabled = false
+# Manhattan distance within band to search for nearby males during reproduction.
+male_proximity_distance = 5
 
 # Reward shaping for trainable cooperative behavior.
 # Reward per unit of plant food gained directly from a plant cell.
