@@ -573,16 +573,18 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         self.assertEqual(env.plant_eating_events, 1)
 
     def test_sexual_reproduction_disabled_males_can_reproduce(self):
-        """Verify males can reproduce when sexual_reproduction_enabled=False."""
+        """Verify males reproduce in asexual mode."""
         env = HunterGathererPatchEnv(
             PatchEnvConfig(
                 grid_size=7,
                 obs_range=5,
-                members_per_band=3,  # Need 3 slots: 2 reproducing + 1 for newborn
+                # Need 3 slots: 2 reproducing + 1 for newborn
+                members_per_band=3,
                 initial_energy_per_kg=20.0,
                 camp_storage_radius=0,
                 reproduction_adult_age=0,
-                reproduction_energy_threshold=0.5,  # Lower threshold for testing
+                # Lower threshold for testing
+                reproduction_energy_threshold=0.5,
                 birth_rate=1.0,  # Guarantee reproduction
                 birth_food_cost=0.0,  # No food cost
                 sexual_reproduction_enabled=False,  # Asexual mode
@@ -594,26 +596,29 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
         env.member_sex[0, 0] = int(MemberSex.MALE)
         env.member_sex[0, 1] = int(MemberSex.FEMALE)
         env.member_alive[0, 2] = False
-        
+
         # Position male and female (doesn't matter much for asexual)
         env._set_member_position(0, 0, (3, 3))
         env._set_member_position(0, 1, (3, 4))
-        
+
         # Set both to high energy (above reproduction threshold)
         max_energy = env._member_max_energy(0, 0)
         env._set_member_energy(0, 0, max_energy * 0.7)  # Above 0.5 threshold
         env._set_member_energy(0, 1, max_energy * 0.7)  # Above 0.5 threshold
-        
+
         # Manually trigger reproduction
         env._maybe_reproduce_band(0)
-        
+
         # In asexual mode, both should be able to reproduce
         # Check that at least one birth occurred
-        self.assertGreater(env.birth_events, 0, 
-                          "Expected reproduction to occur in asexual mode")
+        self.assertGreater(
+            env.birth_events,
+            0,
+            "Expected reproduction to occur in asexual mode",
+        )
 
     def test_sexual_reproduction_enabled_only_females_reproduce(self):
-        """Verify only females can reproduce when sexual_reproduction_enabled=True."""
+        """Verify only females can reproduce when sexual mode is enabled."""
         env = HunterGathererPatchEnv(
             PatchEnvConfig(
                 grid_size=7,
@@ -631,33 +636,36 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             )
         )
         env.reset(seed=103)
-        
+
         # Slot 0: male at (3, 3)
         # Slot 1: female at (3, 3) (same location as male, so nearby)
         # Slot 2: empty
         env.member_sex[0, 0] = int(MemberSex.MALE)
         env.member_sex[0, 1] = int(MemberSex.FEMALE)
         env.member_alive[0, 2] = False
-        
+
         env._set_member_position(0, 0, (3, 3))
         env._set_member_position(0, 1, (3, 3))
-        
+
         # Set both to high energy
         max_energy = env._member_max_energy(0, 0)
         env._set_member_energy(0, 0, max_energy * 0.7)
         env._set_member_energy(0, 1, max_energy * 0.7)
-        
+
         initial_births = env.birth_events
         env._maybe_reproduce_band(0)
-        
+
         # Only the female (slot 1) should reproduce
         # Male (slot 0) should not, so only 1 birth
         births_occurred = env.birth_events - initial_births
-        self.assertEqual(births_occurred, 1,
-                        "Expected exactly 1 birth (female only) in sexual mode")
+        self.assertEqual(
+            births_occurred,
+            1,
+            "Expected exactly 1 birth (female only) in sexual mode",
+        )
 
     def test_sexual_reproduction_female_needs_nearby_male(self):
-        """Verify females cannot reproduce without nearby males in sexual mode."""
+        """Verify female reproduction requires a nearby male."""
         env = HunterGathererPatchEnv(
             PatchEnvConfig(
                 grid_size=7,
@@ -675,30 +683,33 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             )
         )
         env.reset(seed=105)
-        
+
         # Slot 0: male at (0, 0) - far away
         # Slot 1: female at (3, 3) - far from male
         # Slot 2: empty
         env.member_sex[0, 0] = int(MemberSex.MALE)
         env.member_sex[0, 1] = int(MemberSex.FEMALE)
         env.member_alive[0, 2] = False
-        
+
         env._set_member_position(0, 0, (0, 0))
         env._set_member_position(0, 1, (3, 3))
-        
+
         # Set both to high energy
         max_energy = env._member_max_energy(0, 0)
         env._set_member_energy(0, 0, max_energy * 0.7)
         env._set_member_energy(0, 1, max_energy * 0.7)
-        
-        # Manhattan distance: |3-0| + |3-0| = 6, which exceeds proximity_distance=2
+
+        # Manhattan distance is 6, which exceeds proximity_distance=2.
         initial_births = env.birth_events
         env._maybe_reproduce_band(0)
-        
+
         # Female is too far from male, so no reproduction should occur
         births_occurred = env.birth_events - initial_births
-        self.assertEqual(births_occurred, 0,
-                        "Expected no births when female too far from male")
+        self.assertEqual(
+            births_occurred,
+            0,
+            "Expected no births when female too far from male",
+        )
 
     def test_sexual_reproduction_female_with_nearby_male_reproduces(self):
         """Verify females reproduce when male is nearby in sexual mode."""
@@ -719,30 +730,33 @@ class HunterGathererPatchEnvTest(unittest.TestCase):
             )
         )
         env.reset(seed=107)
-        
+
         # Slot 0: male at (2, 2)
         # Slot 1: female at (3, 3) - within proximity
         # Slot 2: empty
         env.member_sex[0, 0] = int(MemberSex.MALE)
         env.member_sex[0, 1] = int(MemberSex.FEMALE)
         env.member_alive[0, 2] = False
-        
+
         env._set_member_position(0, 0, (2, 2))
         env._set_member_position(0, 1, (3, 3))
-        
+
         # Set both to high energy
         max_energy = env._member_max_energy(0, 0)
         env._set_member_energy(0, 0, max_energy * 0.7)
         env._set_member_energy(0, 1, max_energy * 0.7)
-        
-        # Manhattan distance: |3-2| + |3-2| = 2, which is within proximity_distance=5
+
+        # Manhattan distance is 2, which is within proximity_distance=5.
         initial_births = env.birth_events
         env._maybe_reproduce_band(0)
-        
+
         # Female should reproduce since male is nearby
         births_occurred = env.birth_events - initial_births
-        self.assertEqual(births_occurred, 1,
-                        "Expected 1 birth when female near male")
+        self.assertEqual(
+            births_occurred,
+            1,
+            "Expected 1 birth when female near male",
+        )
 
     def test_animals_move_eat_grass_and_reproduce(self):
         env = HunterGathererPatchEnv(

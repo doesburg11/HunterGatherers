@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Hashable
 from pathlib import Path
 import tomllib
 
@@ -14,8 +15,10 @@ def load_training_config(path: Path = CONFIG_PATH) -> dict:
     return raw.get("training", {})
 
 
-def _sex_policy_for_agent_id(agent_id: str) -> str:
+def _sex_policy_for_agent_id(agent_id: Hashable) -> str:
     # Agent ids are formatted as: band_<band_id>_member_<member_identity>
+    if not isinstance(agent_id, str):
+        return "female_policy"
     parts = agent_id.split("_")
     if len(parts) != 4:
         return "female_policy"

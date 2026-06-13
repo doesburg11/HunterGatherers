@@ -701,6 +701,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             self.config.max_animals,
             dtype=np.float32,
         )
+        # Division of labor tracking (plants gathered, animals hunted)
+        self.plants_gathered_by_females: float = 0.0
+        self.plants_gathered_by_males: float = 0.0
+        self.animals_hunted_by_females: float = 0.0
+        self.animals_hunted_by_males: float = 0.0
         self.reset()
 
     @property
@@ -774,6 +779,10 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.dehydration_events = 0
         self.old_age_events = 0
         self.macro_distance_traveled = 0
+        self.plants_gathered_by_females = 0.0
+        self.plants_gathered_by_males = 0.0
+        self.animals_hunted_by_females = 0.0
+        self.animals_hunted_by_males = 0.0
 
         self._generate_new_patch()
         self._place_bands()
@@ -1008,12 +1017,13 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
 
     def _maybe_reproduce_band(self, band_id: int) -> None:
         """Reproduction: a member above the energy threshold reproduces.
-        
+
         When sexual_reproduction_enabled=False: Asexual reproduction where any
         member (male or female) can reproduce, splitting energy 1:1 with child.
-        
+
         When sexual_reproduction_enabled=True: Sexual reproduction where only
-        females reproduce, and only if a male exists within male_proximity_distance.
+        females reproduce, and only if a male exists within
+        male_proximity_distance.
         """
         for member_id in range(self.member_capacity_per_band):
             if not self.member_alive[band_id, member_id]:
@@ -1023,7 +1033,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 < self.config.reproduction_adult_age
             ):
                 continue
-            
+
             # Sexual reproduction: only females can reproduce
             if self.config.sexual_reproduction_enabled:
                 if self._member_sex(band_id, member_id) != MemberSex.FEMALE:
@@ -1031,7 +1041,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 # Female must have a nearby male to reproduce
                 if not self._has_nearby_male(band_id, member_id):
                     continue
-            
+
             if self.member_reproduction_cooldown[band_id, member_id] > 0:
                 continue
             max_energy = self._member_max_energy(band_id, member_id)
@@ -1071,6 +1081,22 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             self._activate_newborn(band_id, slot, newborn_pos, child_energy)
             self.birth_events += 1
             self._last_birth_events[band_id] += 1
+            if self.config.sexual_reproduction_enabled:
+                parent_sex = self._member_sex(band_id, member_id)
+                print(
+                    f"[Step {self.step_count}] Sexual reproduction: "
+                    f"female (band {band_id}, slot {member_id}) gave birth. "
+                    f"Newborn in slot {slot}."
+                )
+            else:
+                parent_sex = self._member_sex(band_id, member_id)
+                is_female = parent_sex == MemberSex.FEMALE
+                parent_sex_label = "female" if is_female else "male"
+                print(
+                    f"[Step {self.step_count}] Asexual reproduction: "
+                    f"{parent_sex_label} (band {band_id}, slot {member_id}) "
+                    f"reproduced. Newborn in slot {slot}."
+                )
 
     def _member_is_adult(self, band_id: int, member_id: int) -> bool:
         return bool(
@@ -1188,6 +1214,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self._last_camp_pressure = self._camp_pressure()
         terminated = not bool(self.member_alive[0, 0])
         truncated = self.step_count >= self.config.max_steps
+        # Print division of labor stats every 100 steps or at episode end
+        if self.step_count % 100 == 0 or terminated or truncated:
+            self._print_division_of_labor_stats()
         reward = self._calculate_reward(terminated)
         return (
             self._build_observation(),
@@ -1856,21 +1885,21 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         """Check if there's an alive male within male_proximity_distance."""
         if not self.config.sexual_reproduction_enabled:
             return True  # Always allow if sexual reproduction disabled
-        
+
         member_y, member_x = self._member_position(band_id, member_id)
-        
+
         for other_id in range(self.member_capacity_per_band):
             if not self.member_alive[band_id, other_id]:
                 continue
             if self._member_sex(band_id, other_id) != MemberSex.MALE:
                 continue
-            
+
             other_y, other_x = self._member_position(band_id, other_id)
             manhattan_dist = abs(member_y - other_y) + abs(member_x - other_x)
-            
+
             if manhattan_dist <= self.config.male_proximity_distance:
                 return True
-        
+
         return False
 
     def _member_can_gather_plants(
@@ -2126,7 +2155,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         n_surplus: int,
         terrain: Terrain,
     ) -> float:
-        """Energy cost for one surplus adult to carry their store share one cell."""
+        """Energy cost for one surplus adult carrying their share one cell."""
         terrain_cost = self._movement_cost_for_terrain(terrain)
         if self.config.use_physical_energetics:
             food_kg = (
@@ -2464,6 +2493,12 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
     ) -> None:
         amount = max(0.0, float(amount))
         self.member_last_food_gained[band_id, member_id] += amount
+        # Track plants gathered by sex
+        member_sex = self._member_sex(band_id, member_id)
+        if member_sex == MemberSex.FEMALE:
+            self.plants_gathered_by_females += amount
+        else:
+            self.plants_gathered_by_males += amount
 
     def _record_animal_food_gained(
         self,
@@ -2474,6 +2509,12 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         amount = max(0.0, float(amount))
         self.member_last_food_gained[band_id, member_id] += amount
         self.member_last_animal_food_gained[band_id, member_id] += amount
+        # Track animals hunted by sex
+        member_sex = self._member_sex(band_id, member_id)
+        if member_sex == MemberSex.FEMALE:
+            self.animals_hunted_by_females += amount
+        else:
+            self.animals_hunted_by_males += amount
 
     def _record_water_gained(
         self,
@@ -2519,6 +2560,34 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
     ) -> None:
         amount = max(0.0, float(amount))
         self.member_last_water_withdrawn[band_id, member_id] += amount
+
+    def _print_division_of_labor_stats(self) -> None:
+        """Print per-sex diet breakdown (plants% vs animals%)."""
+        female_total = (
+            self.plants_gathered_by_females + self.animals_hunted_by_females
+        )
+        male_total = (
+            self.plants_gathered_by_males + self.animals_hunted_by_males
+        )
+        female_plant_pct = (
+            (self.plants_gathered_by_females / female_total * 100)
+            if female_total > 0
+            else 0.0
+        )
+        female_animal_pct = 100.0 - female_plant_pct
+        male_plant_pct = (
+            (self.plants_gathered_by_males / male_total * 100)
+            if male_total > 0
+            else 0.0
+        )
+        male_animal_pct = 100.0 - male_plant_pct
+        print(
+            f"[Step {self.step_count}] Division of Labor — "
+            f"females: {female_plant_pct:.1f}% plants / "
+            f"{female_animal_pct:.1f}% animals | "
+            f"males: {male_plant_pct:.1f}% plants / "
+            f"{male_animal_pct:.1f}% animals"
+        )
 
     def _sync_stored_food_alias(self) -> None:
         self.stored_food = (
@@ -3205,7 +3274,10 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
         agent_slots: list[tuple[str, int]] = [
             (self._agent_id(band, slot), slot)
             for slot in active_slots
-            if self.member_age[band, slot] >= self.config.reproduction_adult_age
+            if (
+                self.member_age[band, slot]
+                >= self.config.reproduction_adult_age
+            )
         ]
         pre_sim_identity: dict[int, int] = {
             slot: int(self.member_ids[band, slot])
@@ -3236,6 +3308,15 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
         self.old_age_events += old_age_events
         self._maybe_reproduce_bands()
         self._last_camp_pressure = self._camp_pressure()
+
+        # Print division of labor stats every 100 steps or at episode end
+        all_alive = len(self._active_controlled_slots()) > 0
+        if (
+            self.step_count % 100 == 0
+            or self.step_count >= self.config.max_steps
+            or not all_alive
+        ):
+            self._print_division_of_labor_stats()
 
         truncated = self.step_count >= self.config.max_steps
         self._refresh_agent_ids()

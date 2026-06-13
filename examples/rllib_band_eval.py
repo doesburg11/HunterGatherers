@@ -76,10 +76,17 @@ def main() -> None:
     algo = Algorithm.from_checkpoint(checkpoint_path)
     female_module = algo.get_module("female_policy")
     male_module = algo.get_module("male_policy")
-    if female_module is None or male_module is None:
+    shared_module = algo.get_module("shared_policy")
+    default_module = algo.get_module("default_policy")
+    single_policy_module = shared_module or default_module
+    has_two_policy_checkpoint = (
+        female_module is not None and male_module is not None
+    )
+    if not has_two_policy_checkpoint and single_policy_module is None:
         raise SystemExit(
-            "Expected 'female_policy' and 'male_policy' in checkpoint. "
-            "Make sure the checkpoint was produced by rllib_band_ppo.py."
+            "Checkpoint is incompatible. Expected either both "
+            "'female_policy'/'male_policy' or one of "
+            "'shared_policy'/'default_policy'."
         )
 
     def _sex_policy_for_agent_id(agent_id: str) -> str:
@@ -99,6 +106,33 @@ def main() -> None:
     ) -> dict[str, int]:
         if not obs_dict:
             return {}
+        if not has_two_policy_checkpoint:
+            if single_policy_module is None:
+                raise RuntimeError(
+                    "Missing single-policy module for legacy checkpoint."
+                )
+            agent_ids = list(obs_dict.keys())
+            obs_batch = np.stack(
+                [
+                    obs_dict[aid].reshape(-1).astype(np.float32)
+                    for aid in agent_ids
+                ]
+            )
+            obs_tensor = torch.tensor(obs_batch)
+            with torch.no_grad():
+                result = single_policy_module.forward_inference(
+                    {Columns.OBS: obs_tensor}
+                )
+            logits = result[Columns.ACTION_DIST_INPUTS].numpy()
+            actions = np.argmax(logits, axis=-1)
+            return {aid: int(actions[i]) for i, aid in enumerate(agent_ids)}
+
+        if female_module is None or male_module is None:
+            raise RuntimeError(
+                "Missing female or male policy module "
+                "for two-policy checkpoint."
+            )
+
         actions_by_agent: dict[str, int] = {}
         for policy_name, module in (
             ("female_policy", female_module),

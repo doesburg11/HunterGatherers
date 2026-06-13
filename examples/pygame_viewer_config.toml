@@ -222,6 +222,8 @@ reproduction_cooldown_steps = 50
 birth_rate = 0.01
 birth_food_cost = 2000.0
 newborn_hydration = 80.0
+sexual_reproduction_enabled = true
+male_proximity_distance = 5
 
 # Reward shaping for trainable cooperative behavior.
 plant_food_reward = 0.05
