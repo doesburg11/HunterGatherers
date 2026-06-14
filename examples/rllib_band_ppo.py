@@ -10,9 +10,18 @@ from hunter_gatherers import RllibBandMemberPatchEnv
 CONFIG_PATH = Path(__file__).with_name("pygame_viewer_config.toml")
 
 
+def load_raw_config(path: Path = CONFIG_PATH) -> dict:
+    return tomllib.loads(path.read_text(encoding="utf-8"))
+
+
 def load_training_config(path: Path = CONFIG_PATH) -> dict:
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = load_raw_config(path)
     return raw.get("training", {})
+
+
+def load_environment_config(path: Path = CONFIG_PATH) -> dict:
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    return raw.get("environment", {})
 
 
 def _sex_policy_for_agent_id(agent_id: Hashable) -> str:
@@ -33,6 +42,7 @@ def _sex_policy_for_agent_id(agent_id: Hashable) -> str:
 
 def main() -> None:
     training_cfg = load_training_config()
+    environment_cfg = load_environment_config()
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -56,6 +66,15 @@ def main() -> None:
             "0 means only save at the end (requires --checkpoint-dir)."
         ),
     )
+    parser.add_argument(
+        "--print-dol-stats",
+        action=argparse.BooleanOptionalAction,
+        default=training_cfg.get("print_dol_stats", True),
+        help=(
+            "Print division-of-labor stats during training. "
+            "Enabled by default; use --no-print-dol-stats to disable."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -73,17 +92,17 @@ def main() -> None:
         lambda config: RllibBandMemberPatchEnv(config),
     )
 
-    # Training-specific env overrides from config.
-    # Everything else comes from patch_env_config.toml via PatchEnvConfig().
-    env_overrides = {
-        k: training_cfg[k]
-        for k in (
-            "members_per_band",
-            "max_members_per_band",
-            "max_steps",
-        )
-        if k in training_cfg
-    }
+    # Base environment comes from [environment] in pygame_viewer_config.toml
+    # so experiment settings (e.g., sexual reproduction) match viewer/eval.
+    env_overrides = dict(environment_cfg)
+
+    # Training-only overrides can still be provided in [training].
+    for key in ("members_per_band", "max_members_per_band", "max_steps"):
+        if key in training_cfg:
+            env_overrides[key] = training_cfg[key]
+
+    # Pass print_dol_stats flag to environment.
+    env_overrides["print_dol_stats"] = args.print_dol_stats
 
     ray.init(ignore_reinit_error=True, include_dashboard=False)
     config = (

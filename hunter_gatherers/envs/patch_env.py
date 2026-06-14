@@ -194,6 +194,10 @@ class PatchEnvConfig:
         "animal_hunt_amount",
         800.0,
     )
+    hunt_energy_cost: float = _default_config_value(
+        "hunt_energy_cost",
+        0.0,
+    )
     animal_carry_share: float = _default_config_value(
         "animal_carry_share",
         1.0,
@@ -404,12 +408,17 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
 
     def __init__(self, config: PatchEnvConfig | dict[str, Any] | None = None):
         super().__init__()
+        self.print_dol_stats = False
         if config is None:
             self.config = PatchEnvConfig()
         elif isinstance(config, PatchEnvConfig):
             self.config = config
         else:
-            self.config = replace(PatchEnvConfig(), **config)
+            raw_config = dict(config)
+            self.print_dol_stats = bool(
+                raw_config.pop("print_dol_stats", False)
+            )
+            self.config = replace(PatchEnvConfig(), **raw_config)
 
         if self.config.grid_size < 5 or self.config.grid_size % 2 == 0:
             raise ValueError("grid_size must be an odd integer >= 5")
@@ -701,11 +710,16 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
             self.config.max_animals,
             dtype=np.float32,
         )
-        # Division of labor tracking (plants gathered, animals hunted)
-        self.plants_gathered_by_females: float = 0.0
-        self.plants_gathered_by_males: float = 0.0
-        self.animals_hunted_by_females: float = 0.0
-        self.animals_hunted_by_males: float = 0.0
+        # Division of labor tracking — window since last print
+        self._dol_plants_females: float = 0.0
+        self._dol_plants_males: float = 0.0
+        self._dol_animals_females: float = 0.0
+        self._dol_animals_males: float = 0.0
+        self._dol_active_foragers: np.ndarray = np.zeros(
+            (self.config.num_bands, self.member_capacity_per_band),
+            dtype=bool,
+        )
+        self._dol_window_start_step: int = 0
         self.reset()
 
     @property
@@ -779,10 +793,7 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self.dehydration_events = 0
         self.old_age_events = 0
         self.macro_distance_traveled = 0
-        self.plants_gathered_by_females = 0.0
-        self.plants_gathered_by_males = 0.0
-        self.animals_hunted_by_females = 0.0
-        self.animals_hunted_by_males = 0.0
+        self._reset_division_of_labor_window()
 
         self._generate_new_patch()
         self._place_bands()
@@ -1118,8 +1129,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         return int(y), int(x)
 
     def _newborn_position(self, band_id: int) -> tuple[int, int]:
-        camp_pos = tuple(
-            int(v) for v in self.band_camp_positions[band_id]
+        camp_pos = (
+            int(self.band_camp_positions[band_id, 0]),
+            int(self.band_camp_positions[band_id, 1]),
         )
         return self._newborn_position_near(band_id, camp_pos)
 
@@ -1988,6 +2000,10 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         self._record_animal_food_gained(band_id, member_id, harvested_energy)
         self._add_member_energy(band_id, member_id, eaten_energy)
         self.member_carried_food[band_id, member_id] += carried_energy
+        if harvested_energy > 0.0 and self.config.hunt_energy_cost > 0.0:
+            self._spend_member_energy(
+                band_id, member_id, self.config.hunt_energy_cost
+            )
 
     def _remove_hunted_animal_energy(
         self,
@@ -2493,12 +2509,14 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
     ) -> None:
         amount = max(0.0, float(amount))
         self.member_last_food_gained[band_id, member_id] += amount
-        # Track plants gathered by sex
+        if amount > 0.0:
+            self._dol_active_foragers[band_id, member_id] = True
+        # Track plants gathered by sex (rolling window)
         member_sex = self._member_sex(band_id, member_id)
         if member_sex == MemberSex.FEMALE:
-            self.plants_gathered_by_females += amount
+            self._dol_plants_females += amount
         else:
-            self.plants_gathered_by_males += amount
+            self._dol_plants_males += amount
 
     def _record_animal_food_gained(
         self,
@@ -2509,12 +2527,14 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         amount = max(0.0, float(amount))
         self.member_last_food_gained[band_id, member_id] += amount
         self.member_last_animal_food_gained[band_id, member_id] += amount
-        # Track animals hunted by sex
+        if amount > 0.0:
+            self._dol_active_foragers[band_id, member_id] = True
+        # Track animals hunted by sex (rolling window)
         member_sex = self._member_sex(band_id, member_id)
         if member_sex == MemberSex.FEMALE:
-            self.animals_hunted_by_females += amount
+            self._dol_animals_females += amount
         else:
-            self.animals_hunted_by_males += amount
+            self._dol_animals_males += amount
 
     def _record_water_gained(
         self,
@@ -2561,33 +2581,112 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         amount = max(0.0, float(amount))
         self.member_last_water_withdrawn[band_id, member_id] += amount
 
+    def _reset_division_of_labor_window(self) -> None:
+        self._dol_plants_females = 0.0
+        self._dol_plants_males = 0.0
+        self._dol_animals_females = 0.0
+        self._dol_animals_males = 0.0
+        self._dol_active_foragers.fill(False)
+        self._dol_window_start_step = self.step_count
+
     def _print_division_of_labor_stats(self) -> None:
-        """Print per-sex diet breakdown (plants% vs animals%)."""
-        female_total = (
-            self.plants_gathered_by_females + self.animals_hunted_by_females
+        """Print per-sex diet breakdown for the current reporting window."""
+        window_steps = max(0, self.step_count - self._dol_window_start_step)
+        window_label = (
+            f"{window_steps} step" if window_steps == 1
+            else f"{window_steps} steps"
         )
-        male_total = (
-            self.plants_gathered_by_males + self.animals_hunted_by_males
+        if not self.print_dol_stats:
+            self._reset_division_of_labor_window()
+            return
+
+        female_plants = self._dol_plants_females
+        female_animals = self._dol_animals_females
+        male_plants = self._dol_plants_males
+        male_animals = self._dol_animals_males
+        female_total = female_plants + female_animals
+        male_total = male_plants + male_animals
+        female_alive = int(
+            np.count_nonzero(
+                self.member_alive
+                & (self.member_sex == int(MemberSex.FEMALE))
+            )
         )
-        female_plant_pct = (
-            (self.plants_gathered_by_females / female_total * 100)
-            if female_total > 0
-            else 0.0
+        male_alive = int(
+            np.count_nonzero(
+                self.member_alive
+                & (self.member_sex == int(MemberSex.MALE))
+            )
         )
-        female_animal_pct = 100.0 - female_plant_pct
-        male_plant_pct = (
-            (self.plants_gathered_by_males / male_total * 100)
-            if male_total > 0
-            else 0.0
+        female_active = int(
+            np.count_nonzero(
+                self._dol_active_foragers
+                & (self.member_sex == int(MemberSex.FEMALE))
+            )
         )
-        male_animal_pct = 100.0 - male_plant_pct
+        male_active = int(
+            np.count_nonzero(
+                self._dol_active_foragers
+                & (self.member_sex == int(MemberSex.MALE))
+            )
+        )
+        female_kcal_per_capita_str = (
+            f"{(female_total / female_alive):.0f}"
+            if female_alive > 0
+            else "N/A"
+        )
+        male_kcal_per_capita_str = (
+            f"{(male_total / male_alive):.0f}"
+            if male_alive > 0
+            else "N/A"
+        )
+        female_kcal_per_active_str = (
+            f"{(female_total / female_active):.0f}"
+            if female_active > 0
+            else "N/A"
+        )
+        male_kcal_per_active_str = (
+            f"{(male_total / male_active):.0f}"
+            if male_active > 0
+            else "N/A"
+        )
+        if female_total > 0:
+            female_plant_pct = female_plants / female_total * 100
+            female_animal_pct = female_animals / female_total * 100
+            female_plant_pct_str = f"{female_plant_pct:.1f}%"
+            female_animal_pct_str = f"{female_animal_pct:.1f}%"
+        else:
+            female_plant_pct_str = "N/A"
+            female_animal_pct_str = "N/A"
+        if male_total > 0:
+            male_plant_pct = male_plants / male_total * 100
+            male_animal_pct = male_animals / male_total * 100
+            male_plant_pct_str = f"{male_plant_pct:.1f}%"
+            male_animal_pct_str = f"{male_animal_pct:.1f}%"
+        else:
+            male_plant_pct_str = "N/A"
+            male_animal_pct_str = "N/A"
         print(
-            f"[Step {self.step_count}] Division of Labor — "
-            f"females: {female_plant_pct:.1f}% plants / "
-            f"{female_animal_pct:.1f}% animals | "
-            f"males: {male_plant_pct:.1f}% plants / "
-            f"{male_animal_pct:.1f}% animals"
+            f"[Step {self.step_count}] Division of Labor "
+            f"(last {window_label}) - "
+            f"females: {female_plant_pct_str} plants / "
+            f"{female_animal_pct_str} animals "
+            f"(plant={female_plants:.0f} kcal, "
+            f"animal={female_animals:.0f} kcal, "
+            f"alive_now={female_alive}, "
+            f"kcal/alive_now={female_kcal_per_capita_str}, "
+            f"active_window={female_active}, "
+            f"kcal/active={female_kcal_per_active_str}) | "
+            f"males: {male_plant_pct_str} plants / "
+            f"{male_animal_pct_str} animals "
+            f"(plant={male_plants:.0f} kcal, "
+            f"animal={male_animals:.0f} kcal, "
+            f"alive_now={male_alive}, "
+            f"kcal/alive_now={male_kcal_per_capita_str}, "
+            f"active_window={male_active}, "
+            f"kcal/active={male_kcal_per_active_str})"
         )
+        self._reset_division_of_labor_window()
 
     def _sync_stored_food_alias(self) -> None:
         self.stored_food = (
@@ -2601,12 +2700,14 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         band_id: int,
         member_id: int,
     ) -> bool:
+        camp_pos = (
+            int(self.band_camp_positions[band_id, 0]),
+            int(self.band_camp_positions[band_id, 1]),
+        )
         return (
             self._camp_distance(
                 self._member_position(band_id, member_id),
-                tuple(
-                    int(v) for v in self.band_camp_positions[band_id]
-                ),
+                camp_pos,
             )
             <= self.config.camp_storage_radius
         )
@@ -2795,7 +2896,10 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
         if self.config.max_animals == 0:
             self._sync_animal_energy_layer()
             return
-        active_ids = list(np.flatnonzero(self.animal_alive))
+        active_ids = [
+            int(animal_id)
+            for animal_id in np.flatnonzero(self.animal_alive)
+        ]
         self._move_animals(active_ids)
         self._feed_animals(active_ids)
         self._reproduce_animals(active_ids)
@@ -2854,8 +2958,9 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
                 < self.config.animal_reproduction_cost
             ):
                 continue
-            parent_pos = tuple(
-                int(v) for v in self.animal_positions[animal_id]
+            parent_pos = (
+                int(self.animal_positions[animal_id, 0]),
+                int(self.animal_positions[animal_id, 1]),
             )
             child_pos = self._animal_birth_position(parent_pos)
             if child_pos is None:
@@ -2904,8 +3009,11 @@ class HunterGathererPatchEnv(gym.Env[np.ndarray, int]):
 
     def _build_observation(self) -> np.ndarray:
         if not self.member_alive[0, 0]:
-            return np.zeros(self.observation_space.shape, dtype=np.float32)
+            return np.zeros(self._observation_shape(), dtype=np.float32)
         return self._build_member_observation(0, 0)
+
+    def _observation_shape(self) -> tuple[int, int, int]:
+        return (15, self.config.obs_range, self.config.obs_range)
 
     def _build_member_observation(
         self,
@@ -3406,7 +3514,7 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
                     # Calling _build_member_observation would crash because
                     # member_body_mass_kg is zeroed out on death.
                     observations[agent_id] = np.zeros(
-                        self.observation_space.shape, dtype=np.float32
+                        self._observation_shape(), dtype=np.float32
                     )
 
         return observations, rewards, terminations, truncations, infos
@@ -3503,20 +3611,23 @@ class BandMemberPatchEnv(HunterGathererPatchEnv):
         self._episode_rng.shuffle(order)
         for member_id in order:
             target = proposals[member_id]
-            occupied_by = occupied.get(target)
+            occupied_by: tuple[int, int] | None = occupied.get(target)
             blocked = (
                 occupied_by is not None
                 and occupied_by != (self.controlled_band_id, member_id)
             )
             if blocked:
                 bid = self.controlled_band_id
-                can_swap = (
-                    self._migration_target is not None
-                    and self._member_is_adult(bid, member_id)
-                    and occupied_by[0] == bid
-                    and not self._member_is_adult(bid, occupied_by[1])
-                )
-                if can_swap:
+                if occupied_by is not None:
+                    can_swap = (
+                        self._migration_target is not None
+                        and self._member_is_adult(bid, member_id)
+                        and occupied_by[0] == bid
+                        and not self._member_is_adult(bid, occupied_by[1])
+                    )
+                else:
+                    can_swap = False
+                if can_swap and occupied_by is not None:
                     blocker_id = occupied_by[1]
                     old_pos = self._member_position(bid, member_id)
                     occupied.pop(old_pos, None)

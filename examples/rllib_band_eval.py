@@ -39,6 +39,15 @@ def main() -> None:
         default=None,
         help="Optional seed override for the environment reset.",
     )
+    parser.add_argument(
+        "--print-dol-stats",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Print division-of-labor stats during evaluation. "
+            "Enabled by default; use --no-print-dol-stats to disable."
+        ),
+    )
     args = parser.parse_args()
 
     viewer_config = load_viewer_config()
@@ -165,6 +174,7 @@ def main() -> None:
         return actions_by_agent
 
     env = BandMemberPatchEnv(load_env_config())
+    env.print_dol_stats = args.print_dol_stats
     viewer = PygamePatchViewer(
         env,
         viewer_config,

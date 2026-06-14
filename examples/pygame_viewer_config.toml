@@ -1,6 +1,6 @@
 [training]
 # Number of PPO training iterations to run.
-iterations = 1000
+iterations = 100
 
 # Directory to save checkpoints during and after training.
 checkpoint_dir = "checkpoints/"
@@ -8,8 +8,9 @@ checkpoint_dir = "checkpoints/"
 # Save a checkpoint every N iterations (0 = only at the end).
 checkpoint_freq = 10
 
-# Environment overrides for training (shorter episodes = faster iterations).
-max_steps = 1000
+# Environment overrides for training. Long enough for multiple reproduction
+# cycles so sex-specific pressures can actually accumulate.
+max_steps = 3000
 
 [viewer]
 # Path to the RLlib checkpoint directory used by rllib_band_eval.py.
@@ -65,18 +66,18 @@ initial_hydration = 100.0
 max_hydration = 100.0
 
 # Body water lost by each living member every step.
-thirst_per_step = 0.2
+thirst_per_step = 0.15
 
 # Body water restored automatically when a member enters a water cell.
-drink_amount = 5.0
+drink_amount = 7.0
 
 # Use kcal/kg/km movement costs and body-mass-scaled internal energy stores.
 use_physical_energetics = true
 adult_body_mass_kg = 70.0
 newborn_body_mass_kg = 14.0
-initial_energy_per_kg = 22.0
+initial_energy_per_kg = 24.0
 max_energy_per_kg = 35.0
-newborn_energy_per_kg = 30.0
+newborn_energy_per_kg = 32.0
 cell_distance_km = 0.25
 walking_kcal_per_kg_km = 1.0
 food_energy_density_kcal_per_kg = 2500.0
@@ -99,7 +100,7 @@ movement_energy_rate = 0.01
 water_load_factor = 1.0
 
 # Maximum direct energy stored in a full plant cell, in kcal.
-plant_energy_capacity = 1000.0
+plant_energy_capacity = 1400.0
 
 # Maximum direct plant energy transferred automatically when a member enters a
 # plant cell, in kcal.
@@ -119,10 +120,10 @@ grass_regrowth_base = 10.0
 animal_energy_capacity = 2500.0
 
 # Number of animal agents placed at reset.
-initial_animals = 35
+initial_animals = 24
 
 # Maximum number of living animal agents in a patch.
-max_animals = 120
+max_animals = 80
 
 # Starting animal body energy, in kcal.
 initial_animal_energy = 1200.0
@@ -146,7 +147,10 @@ animal_reproduction_cost = 900.0
 newborn_animal_energy = 800.0
 
 # Maximum animal energy harvested when a member enters an animal cell, in kcal.
-animal_hunt_amount = 800.0
+animal_hunt_amount = 500.0
+
+# Extra energy cost paid by the hunter when a hunt succeeds, in kcal.
+hunt_energy_cost = 900.0
 
 # Share of hunted animal energy reserved for carrying to camp.
 animal_carry_share = 1.0
@@ -191,7 +195,7 @@ camp_food_decay_rate = 0.005
 river_crossing_width = 3
 
 # Plant energy added each step to plant cells, before seasonal scaling.
-plant_regrowth_base = 0.08
+plant_regrowth_base = 0.15
 
 # Number of steps per season.
 season_length = 12
@@ -215,8 +219,8 @@ camp_relocation_cost = 0.0
 reproduction_enabled = true
 reproduction_adult_age = 750
 max_age = 3000
-mortality_onset_years = 25.0
-mortality_rate_per_year = 0.05
+mortality_onset_years = 35.0
+mortality_rate_per_year = 0.03
 reproduction_energy_threshold = 0.95
 reproduction_cooldown_steps = 50
 birth_rate = 0.01
@@ -227,7 +231,7 @@ male_proximity_distance = 5
 
 # Reward shaping for trainable cooperative behavior.
 plant_food_reward = 0.05
-animal_food_reward = 0.10
+animal_food_reward = 0.05
 food_deposit_reward = 0.03
 water_collect_reward = 0.10
 water_deposit_reward = 0.30

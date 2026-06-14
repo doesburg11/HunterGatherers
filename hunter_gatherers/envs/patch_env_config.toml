@@ -133,6 +133,11 @@ newborn_animal_energy = 800.0
 # Maximum animal energy harvested when a member enters an animal cell, in kcal.
 animal_hunt_amount = 800.0
 
+# Extra energy cost paid by the hunter when a hunt succeeds, in kcal.
+# Higher values make hunting relatively expensive, favouring plant gathering
+# for energy-constrained agents (e.g. reproducing females).
+hunt_energy_cost = 0.0
+
 # Share of hunted animal energy reserved for carrying to camp.
 animal_carry_share = 1.0
 
